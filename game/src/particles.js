@@ -1,81 +1,116 @@
-// Particles and screen shake: exhaust smoke, crash sparks, muzzle flashes,
-// skid marks and blood-free hit puffs. A fixed pool, no allocation per frame
-// after boot; the renderer reads the live list.
+// Solmar Bay — particles.
+// One job: short-lived visual effects: explosions, smoke from damaged
+// cars, sparks from collisions, and the dust kicked up by a getaway.
+
+import { PALETTE } from './config.js';
 
 export function createParticles() {
-  const pool = [];
-  for (let i = 0; i < 240; i += 1) {
-    pool.push({ active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 3, color: '#ffffff', gravity: 0 });
-  }
-  let shake = 0;
+  return { list: [] };
+}
 
-  function spawn(x, y, vx, vy, life, size, color, gravity) {
-    for (const p of pool) {
-      if (p.active) continue;
-      p.active = true;
-      p.x = x;
-      p.y = y;
-      p.vx = vx;
-      p.vy = vy;
-      p.life = life;
-      p.maxLife = life;
-      p.size = size;
-      p.color = color;
-      p.gravity = gravity || 0;
-      return;
-    }
-  }
+function add(particles, p) {
+  particles.list.push(p);
+  if (particles.list.length > 420) particles.list.splice(0, particles.list.length - 420);
+}
 
-  function burst(x, y, count, color, speed, life, size) {
-    for (let i = 0; i < count; i += 1) {
-      const a = Math.random() * Math.PI * 2;
-      const s = speed * (0.3 + Math.random() * 0.7);
-      spawn(x, y, Math.cos(a) * s, Math.sin(a) * s, life * (0.5 + Math.random() * 0.5), size, color, 0);
-    }
+export function spawnExplosion(particles, x, y, big) {
+  const n = big ? 46 : 26;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 60 + Math.random() * (big ? 340 : 220);
+    add(particles, {
+      kind: 'fire',
+      x, y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: 0.5 + Math.random() * 0.5,
+      maxLife: 1,
+      size: 6 + Math.random() * (big ? 16 : 10),
+      color: Math.random() < 0.5 ? PALETTE.explosionOrange : PALETTE.explosionYellow,
+    });
   }
-
-  function update(dt) {
-    for (const p of pool) {
-      if (!p.active) continue;
-      p.life -= dt;
-      if (p.life <= 0) { p.active = false; continue; }
-      p.vy += p.gravity * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vx *= 0.98;
-      p.vy *= 0.98;
-    }
-    if (shake > 0) shake = Math.max(0, shake - dt * 30);
+  for (let i = 0; i < (big ? 18 : 10); i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 30 + Math.random() * 90;
+    add(particles, {
+      kind: 'smoke',
+      x: x + Math.cos(a) * 12,
+      y: y + Math.sin(a) * 12,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp - 30,
+      life: 1.2 + Math.random() * 0.8,
+      maxLife: 2,
+      size: 12 + Math.random() * 14,
+      color: PALETTE.smoke,
+    });
   }
+}
 
-  return {
-    pool,
-    burst,
-    smoke(x, y, angle) {
-      const bx = x - Math.cos(angle) * 22;
-      const by = y - Math.sin(angle) * 22;
-      spawn(bx, by, -Math.cos(angle) * 30 + (Math.random() - 0.5) * 20, -Math.sin(angle) * 30 + (Math.random() - 0.5) * 20, 0.7, 5 + Math.random() * 4, '#9aa5ad', -20);
-    },
-    damageSmoke(x, y, angle) {
-      // Dark puffs drifting up and back from a battered hood (round 3).
-      for (let i = 0; i < 3; i += 1) {
-        spawn(x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 10,
-          -Math.cos(angle) * 30 + (Math.random() - 0.5) * 30,
-          -Math.sin(angle) * 30 - 30 - Math.random() * 20,
-          1.0 + Math.random() * 0.3, 6 + Math.random() * 4, '#4a4a4a', -25);
-      }
-    },
-    sparks(x, y) { burst(x, y, 14, '#ffd166', 220, 0.5, 3); burst(x, y, 6, '#ff6b35', 140, 0.4, 4); },
-    muzzle(x, y, angle) {
-      burst(x, y, 5, '#ffe66d', 300, 0.12, 3);
-      spawn(x + Math.cos(angle) * 14, y + Math.sin(angle) * 14, 0, 0, 0.08, 10, '#fff3b0', 0);
-    },
-    hitPuff(x, y) { burst(x, y, 8, '#e0e0e0', 120, 0.35, 3); },
-    addShake(amount) { shake = Math.min(18, shake + amount); },
-    shakeOffset() {
-      if (shake <= 0) return { x: 0, y: 0 };
-      return { x: (Math.random() - 0.5) * shake, y: (Math.random() - 0.5) * shake };
-    },
-    update,
-  };
+export function spawnSmoke(particles, x, y) {
+  add(particles, {
+    kind: 'smoke',
+    x: x + (Math.random() - 0.5) * 10,
+    y: y + (Math.random() - 0.5) * 10,
+    vx: (Math.random() - 0.5) * 20,
+    vy: -34 - Math.random() * 22,
+    life: 0.9 + Math.random() * 0.5,
+    maxLife: 1.4,
+    size: 9 + Math.random() * 9,
+    color: PALETTE.smoke,
+  });
+}
+
+export function spawnSparks(particles, x, y) {
+  for (let i = 0; i < 8; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 120 + Math.random() * 180;
+    add(particles, {
+      kind: 'spark',
+      x, y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: 0.25 + Math.random() * 0.2,
+      maxLife: 0.45,
+      size: 2.5,
+      color: '#ffe9a8',
+    });
+  }
+}
+
+export function spawnDust(particles, x, y) {
+  add(particles, {
+    kind: 'smoke',
+    x, y,
+    vx: (Math.random() - 0.5) * 30,
+    vy: (Math.random() - 0.5) * 30,
+    life: 0.5,
+    maxLife: 0.5,
+    size: 6 + Math.random() * 6,
+    color: '#cbb98f',
+  });
+}
+
+export function updateParticles(particles, dt) {
+  const list = particles.list;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const p = list[i];
+    p.life -= dt;
+    if (p.life <= 0) { list.splice(i, 1); continue; }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    if (p.kind === 'fire') { p.vx *= 0.94; p.vy *= 0.94; }
+    if (p.kind === 'smoke') { p.size += 14 * dt; p.vx *= 0.98; p.vy *= 0.98; }
+  }
+}
+
+export function drawParticles(ctx, particles) {
+  for (const p of particles.list) {
+    const alpha = Math.max(0, p.life / p.maxLife);
+    ctx.globalAlpha = p.kind === 'smoke' ? alpha * 0.45 : alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(1, p.size * (p.kind === 'fire' ? alpha : 1)), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 }

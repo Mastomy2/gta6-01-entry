@@ -1,49 +1,42 @@
-// Save / load through localStorage: money, mission progress, player position
-// and health. Saved after every completed mission and on the S key; Continue
-// on the title screen loads it. Storage failures (private mode) are silent.
+// Solmar Bay — saving.
+// One job: persist and restore the player's money and story progress in
+// localStorage. Nothing else about the run is saved.
 
-export const SAVE_KEY = 'solmarbay.save.v1';
+const SAVE_KEY = 'solmar-bay-save-v1';
 
-export function saveGame(G) {
-  const data = {
-    version: 1,
-    money: G.money,
-    missionIndex: G.missionIndex,
-    x: G.player.x,
-    y: G.player.y,
-    hp: G.player.hp,
-    ammo: G.ammo,
-    savedAt: Date.now(),
-  };
+export function saveGame(S) {
   try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    const data = {
+      money: S.player.money,
+      missionIndex: S.missions.index,
+      carsStolen: S.player.carsStolen,
+      kills: S.player.kills,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
   } catch {
     return false;
   }
 }
 
-export function loadSave() {
+export function loadGame() {
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
+    const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || data.version !== 1) return null;
-    // Round 3: a hand-edited or corrupt save with a non-numeric wallet
-    // used to poison the HUD money display; reject it outright.
-    if (!Number.isFinite(data.money) || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return null;
+    if (typeof data.money !== 'number' || typeof data.missionIndex !== 'number') return null;
     return data;
   } catch {
     return null;
   }
 }
 
-export function hasSave() {
-  return loadSave() !== null;
-}
-
-export function clearSave() {
-  try {
-    window.localStorage.removeItem(SAVE_KEY);
-  } catch { /* ignore */ }
+export function applySave(S, data) {
+  if (!data) return;
+  S.player.money = data.money;
+  S.missions.index = Math.max(0, Math.min(5, data.missionIndex));
+  S.missions.done = S.missions.index >= 5;
+  S.player.carsStolen = data.carsStolen || 0;
+  S.player.kills = data.kills || 0;
 }

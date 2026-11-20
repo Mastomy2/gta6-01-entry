@@ -1,96 +1,140 @@
-// Pedestrians: ordinary people walking the sidewalks of Solmar Bay. They
-// stroll along the road edges, chat at corners, and run away screaming (in
-// particles and motion, not in text) when shots are fired or a car speeds
-// at them. Some carry cash or ammo pickups when they are startled.
+// Solmar Bay — pedestrians.
+// One job: the 32 people walking Solmar Bay's sidewalks, strolling,
+// crossing at zebras, and running away from a speeding car.
 
-import { ROADS_X, ROADS_Y, WORLD, dist, moveWithCollision } from './city.js';
+import { PED_COUNT, PLAYER_RADIUS } from './config.js';
+import { makeRng, range, pick, chance } from './random.js';
+import { randomSidewalkPoint, isBlocked, dist, clampToWorld } from './world.js';
 
-const PED_COLORS = ['#f2e6c9', '#c9d6f2', '#f2c9d8', '#c9f2d4', '#e8d9a0', '#d8c9f2'];
+const SHIRTS = ['#e2483d', '#3d7de2', '#57b25a', '#e8a13d', '#9b59d0', '#e86a92', '#3db5b5', '#f0f0f0'];
 
-function mulberry32(seed) {
-  let a = seed | 0;
-  return function random() {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export function spawnPedestrians(G, count) {
-  const rand = mulberry32(4242);
-  for (let i = 0; i < count; i += 1) {
-    const horizontal = rand() < 0.5;
-    let x;
-    let y;
-    if (horizontal) {
-      x = 60 + rand() * (WORLD.width - 120);
-      y = ROADS_Y[Math.floor(rand() * ROADS_Y.length)] + (rand() < 0.5 ? -78 : 78);
-    } else {
-      x = ROADS_X[Math.floor(rand() * ROADS_X.length)] + (rand() < 0.5 ? -78 : 78);
-      y = 60 + rand() * (WORLD.height - 120);
-    }
-    G.peds.push({
-      x, y,
-      angle: rand() * Math.PI * 2,
-      speed: 45 + rand() * 35,
-      fleeing: false,
-      fleeTimer: 0,
-      color: PED_COLORS[Math.floor(rand() * PED_COLORS.length)],
-      dead: false,
-      driver: false,
-      walkPhase: rand() * Math.PI * 2,
+export function spawnPedestrians(seed) {
+  const rng = makeRng(seed + 303);
+  const peds = [];
+  for (let i = 0; i < PED_COUNT; i++) {
+    const p = randomSidewalkPoint(rng);
+    peds.push({
+      x: p.x, y: p.y,
+      vx: 0, vy: 0,
+      angle: range(rng, 0, Math.PI * 2),
+      speed: range(rng, 34, 62),
+      shirt: pick(rng, SHIRTS),
+      skin: pick(rng, ['#e8b98a', '#c98d5f', '#8a5a3b', '#f0c8a0']),
+      state: 'walk', // walk | flee | down
+      stateTimer: range(rng, 2, 8),
+      downTimer: 0,
+      walkPhase: range(rng, 0, Math.PI * 2),
     });
   }
+  return peds;
 }
 
-export function updatePedestrians(G, dt) {
-  const p = G.player;
-  for (const ped of G.peds) {
-    if (ped.dead) continue;
-    const dPlayer = dist(ped, p);
-    const playerCar = G.playerCar;
-    const carSpeed = playerCar ? Math.abs(playerCar.speed) : 0;
-    // Flee from gunfire, a speeding car, or a nearby wanted chase.
-    if (G.playerShooting || (playerCar && dPlayer < 120 && carSpeed > 200) || (G.wanted >= 3 && dPlayer < 140)) {
-      if (!ped.fleeing) {
-        ped.fleeing = true;
-        ped.fleeTimer = 2 + Math.random() * 2;
+export function updatePedestrians(S, dt) {
+  const px = S.player.x;
+  const py = S.player.y;
+  const playerCar = S.player.car;
+  for (const ped of S.peds) {
+    ped.walkPhase += dt * (ped.state === 'flee' ? 14 : 7);
+    if (ped.state === 'down') {
+      ped.downTimer -= dt;
+      if (ped.downTimer <= 0) {
+        ped.state = 'walk';
+        ped.stateTimer = 2;
+      }
+      continue;
+    }
+    // Flee a fast car or a nearby threat.
+    let threatX = null;
+    let threatY = null;
+    let threatR = 0;
+    if (playerCar && Math.abs(playerCar.speed) > 120) {
+      threatX = playerCar.x; threatY = playerCar.y; threatR = 150;
+    } else if (S.player.onFoot) {
+      threatX = px; threatY = py; threatR = 60;
+      // Only flee the player when he is sprinting into them or punching.
+      if (S.player.punchTimer > 0.2) threatR = 90;
+      else threatX = null;
+    }
+    if (threatX !== null && dist(ped.x, ped.y, threatX, threatY) < threatR) {
+      ped.state = 'flee';
+      ped.stateTimer = 1.2;
+    }
+    if (ped.state === 'flee') {
+      ped.stateTimer -= dt;
+      const a = Math.atan2(ped.y - (threatY ?? py), ped.x - (threatX ?? px));
+      ped.angle = a;
+      ped.vx = Math.cos(a) * 150;
+      ped.vy = Math.sin(a) * 150;
+      if (ped.stateTimer <= 0) ped.state = 'walk';
+    } else {
+      ped.stateTimer -= dt;
+      if (ped.stateTimer <= 0) {
+        ped.stateTimer = range(Math.random, 3, 9);
+        ped.angle = Math.random() * Math.PI * 2;
+      }
+      ped.vx = Math.cos(ped.angle) * ped.speed;
+      ped.vy = Math.sin(ped.angle) * ped.speed;
+    }
+    const nx = ped.x + ped.vx * dt;
+    const ny = ped.y + ped.vy * dt;
+    if (!isBlocked(S.world, nx, ny, 4)) {
+      const c = clampToWorld(nx, ny, 30);
+      ped.x = c.x;
+      ped.y = c.y;
+    } else {
+      ped.angle += Math.PI / 2;
+    }
+  }
+
+  // A speeding car knocks a pedestrian down: a crime, wanted goes up.
+  if (playerCar && Math.abs(playerCar.speed) > 90) {
+    for (const ped of S.peds) {
+      if (ped.state === 'down') continue;
+      if (dist(ped.x, ped.y, playerCar.x, playerCar.y) < 30) {
+        ped.state = 'down';
+        ped.downTimer = 4;
+        S.player.addWanted(1, 'pedestrian hit');
+        S.audio.crash();
       }
     }
-    if (ped.fleeTimer > 0) {
-      ped.fleeTimer -= dt;
-      if (ped.fleeTimer <= 0) ped.fleeing = false;
-    }
-    let vx = 0;
-    let vy = 0;
-    if (ped.fleeing) {
-      const away = Math.atan2(ped.y - p.y, ped.x - p.x);
-      ped.angle = away;
-      vx = Math.cos(away) * 190;
-      vy = Math.sin(away) * 190;
-    } else {
-      // Stroll along the sidewalk: keep walking, turn at random corners.
-      if (Math.random() < 0.004) ped.angle += (Math.random() - 0.5) * Math.PI;
-      vx = Math.cos(ped.angle) * ped.speed;
-      vy = Math.sin(ped.angle) * ped.speed;
-    }
-    ped.walkPhase += dt * (ped.fleeing ? 14 : 7);
-    const next = moveWithCollision(G.city, ped.x, ped.y, vx * dt, vy * dt, 12);
-    if (next.x === ped.x && next.y === ped.y && (vx !== 0 || vy !== 0)) {
-      ped.angle += Math.PI / 2; // bumped into a building: turn the corner
-    } else {
-      ped.x = next.x;
-      ped.y = next.y;
-    }
-    // Stay inside the world.
-    ped.x = Math.max(16, Math.min(WORLD.width - 16, ped.x));
-    ped.y = Math.max(16, Math.min(WORLD.height - 16, ped.y));
   }
-  G.peds = G.peds.filter((ped) => !ped.dead);
-  // Keep the streets populated. Round 3: the floor rises with the denser
-  // base count (32 walkers), so the city never thins out mid-chase.
-  if (G.peds.length < 28 && Math.random() < 0.02) {
-    spawnPedestrians(G, 1);
+}
+
+export function drawPedestrians(ctx, peds) {
+  for (const ped of peds) {
+    const bob = ped.state === 'down' ? 0 : Math.sin(ped.walkPhase) * 1.5;
+    ctx.save();
+    ctx.translate(ped.x, ped.y);
+    if (ped.state === 'down') {
+      ctx.rotate(1.4);
+      ctx.fillStyle = ped.shirt;
+      ctx.fillRect(-11, -6, 22, 12);
+      ctx.fillStyle = ped.skin;
+      ctx.beginPath();
+      ctx.arc(13, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.rotate(ped.angle + Math.PI / 2);
+      // Shadow.
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(1, 2, 9, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Body.
+      ctx.fillStyle = ped.shirt;
+      ctx.beginPath();
+      ctx.arc(0, 0, 9, 0, Math.PI * 2);
+      ctx.fill();
+      // Head.
+      ctx.fillStyle = ped.skin;
+      ctx.beginPath();
+      ctx.arc(0, -bob * 0.4, 6, 0, Math.PI * 2);
+      ctx.fill();
+      // Walking feet.
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-6, 6 + bob, 4, 5);
+      ctx.fillRect(2, 6 - bob, 4, 5);
+    }
+    ctx.restore();
   }
 }
