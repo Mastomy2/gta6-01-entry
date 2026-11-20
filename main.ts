@@ -1,44 +1,37 @@
-// Solmar Bay — an original open-world crime game for make.fun's gta6-01
-// ("Make GTA 6") bounty: Rico Vega, wheelman, steals cars, dodges the
-// Solmar Bay police across 5 story missions, and chases the Big Score.
-// Round 3 polish (Nov 2026): a new heist-getaway cover scene, a denser
-// city (street lamps, hydrants, more traffic and walkers), damage smoke
-// on the getaway car, and a HUD hint pill that can never clip off-screen.
-// A working gta6-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library.
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Solmar Bay — the entry program.
+// One job: hand the game in. Copy game/ and screenshots/ from this
+// repository into the output directory and write dossier.json there with
+// buildDossier from the kit's vendor/makefun-game.ts. Standard library
+// only; runs on Node 22 with no install and no network.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const repoRoot = resolve(import.meta.dirname);
+const outDir = process.env.MAKEFUN_OUTPUT_DIR
+  ? resolve(process.env.MAKEFUN_OUTPUT_DIR)
+  : '/output';
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+const gameDir = join(repoRoot, 'game');
+const shotsDir = join(repoRoot, 'screenshots');
+if (!existsSync(join(gameDir, 'index.html'))) {
+  throw new Error('Solmar Bay: game/index.html is missing, nothing to hand in');
+}
+if (!existsSync(shotsDir)) {
+  throw new Error('Solmar Bay: screenshots/ is missing, nothing to hand in');
+}
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
-// files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json). Round 3 ships 4 action shots, no menus:
-// 1-chase (Heat, 4 stars), 2-beach (cruise), 3-plaza (Payback), 4-heist (Big Score getaway, 5 stars).
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+rmSync(outDir, { recursive: true, force: true });
+mkdirSync(outDir, { recursive: true });
+cpSync(gameDir, join(outDir, 'game'), { recursive: true });
+cpSync(shotsDir, join(outDir, 'screenshots'), { recursive: true });
+
+const dossier = buildDossier(outDir, {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+});
+writeFileSync(join(outDir, 'dossier.json'), dossier);
+console.log(`Solmar Bay: wrote ${outDir}/dossier.json (${dossier.length} bytes)`);
