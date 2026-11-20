@@ -1,6 +1,9 @@
 // Solmar Bay — an original open-world crime game for make.fun's gta6-01
 // ("Make GTA 6") bounty: Rico Vega, wheelman, steals cars, dodges the
 // Solmar Bay police across 5 story missions, and chases the Big Score.
+// Round 3 polish (Nov 2026): a new heist-getaway cover scene, a denser
+// city (street lamps, hydrants, more traffic and walkers), damage smoke
+// on the getaway car, and a HUD hint pill that can never clip off-screen.
 // A working gta6-01 entry (Node 22, standard library only): the game is this directory's
 // game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
 // modules, no library and no network request), and the program hands it in. It copies game/ and
@@ -27,7 +30,8 @@ if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), joi
 // The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
 // scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of game
 // files, in all, or a path under game/ over 1000 bytes: game/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json).
+// screenshots/ and dossier.json). Round 3 ships 4 action shots, no menus:
+// 1-chase (Heat, 4 stars), 2-beach (cruise), 3-plaza (Payback), 4-heist (Big Score getaway, 5 stars).
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {
