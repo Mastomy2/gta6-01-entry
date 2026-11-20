@@ -88,8 +88,9 @@ export function updatePedestrians(G, dt) {
     ped.y = Math.max(16, Math.min(WORLD.height - 16, ped.y));
   }
   G.peds = G.peds.filter((ped) => !ped.dead);
-  // Keep the streets populated.
-  if (G.peds.length < 22 && Math.random() < 0.02) {
+  // Keep the streets populated. Round 3: the floor rises with the denser
+  // base count (32 walkers), so the city never thins out mid-chase.
+  if (G.peds.length < 28 && Math.random() < 0.02) {
     spawnPedestrians(G, 1);
   }
 }

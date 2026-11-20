@@ -112,6 +112,12 @@ export function updateBullets(G, dt) {
       if (p.onFoot && dist(b, p) < 18) {
         b.life = 0;
         damagePlayer(G, 8, 'wasted');
+      } else if (!p.onFoot && G.playerCar && dist(b, G.playerCar) < 26) {
+        // Round 3: gang fire used to pass straight through Rico's car.
+        // A hit now chips the hull (1 hp) and sparks, so drive-bys sting.
+        b.life = 0;
+        G.playerCar.hp -= 1;
+        G.particles.sparks(b.x, b.y);
       }
     }
   }

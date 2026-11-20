@@ -95,9 +95,12 @@ export function createAudio() {
 
   function setEngine(speed01) {
     if (!engineOsc || !engineGain || !ctx) return;
+    // Clamp: callers pass a ratio, but a stray value must never push the
+    // oscillator or gain out of range (round 3 robustness).
+    const s = Math.max(0, Math.min(1, speed01));
     try {
-      engineOsc.frequency.setTargetAtTime(50 + speed01 * 160, ctx.currentTime, 0.08);
-      engineGain.gain.setTargetAtTime(speed01 > 0.02 ? 0.05 + speed01 * 0.05 : 0, ctx.currentTime, 0.1);
+      engineOsc.frequency.setTargetAtTime(50 + s * 160, ctx.currentTime, 0.08);
+      engineGain.gain.setTargetAtTime(s > 0.02 ? 0.05 + s * 0.05 : 0, ctx.currentTime, 0.1);
     } catch { /* ignore */ }
   }
 

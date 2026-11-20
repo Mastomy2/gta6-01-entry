@@ -46,6 +46,28 @@ function dealRoof(rand) {
   return 'plain';
 }
 
+// Street props, fixed positions on the road grid: lamps every 400 units
+// along every road (alternating sides, on the sidewalk edge) and a few
+// hydrants on sidewalk corners. Deterministic, no RNG needed.
+export function spawnStreetProps() {
+  const lamps = [];
+  for (const rx of ROADS_X) {
+    for (let y = 200; y < WORLD.height; y += 400) {
+      lamps.push({ x: rx + (Math.floor(y / 400) % 2 === 0 ? -78 : 78), y });
+    }
+  }
+  for (const ry of ROADS_Y) {
+    for (let x = 200; x < WORLD.width; x += 400) {
+      lamps.push({ x, y: ry + (Math.floor(x / 400) % 2 === 0 ? -78 : 78) });
+    }
+  }
+  const hydrants = [
+    { x: 478, y: 478 }, { x: 1678, y: 978 }, { x: 2278, y: 1478 },
+    { x: 2878, y: 1978 }, { x: 1078, y: 1978 },
+  ];
+  return { lamps, hydrants };
+}
+
 export function createCity() {
   const rand = mulberry32(20261124);
   const buildings = [];
@@ -139,7 +161,12 @@ export function createCity() {
     });
   }
 
-  return { buildings, palms, umbrellas, rand };
+  // Street props: lamps along every road and a few hydrants on sidewalk
+  // corners. Purely visual — no collision — they just keep the sidewalks
+  // from reading empty (round 3).
+  const { lamps, hydrants } = spawnStreetProps();
+
+  return { buildings, palms, umbrellas, lamps, hydrants, rand };
 }
 
 export function isOnRoad(x, y) {

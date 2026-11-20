@@ -3,7 +3,7 @@
 // (busted = game over). Wanted decays after ~20 s without a new crime, and
 // the heat rises with the star count.
 
-import { WORLD, dist, hitsBuilding, moveWithCollision } from './city.js';
+import { WORLD, dist, hitsBuilding, moveWithCollision, nearestRoadPoint } from './city.js';
 import { damagePlayer } from './player.js';
 
 export const MAX_WANTED = 5;
@@ -49,8 +49,15 @@ function spawnCopCar(G) {
   const p = G.player;
   // Appear on a road a little way off, so the chase is visible, not instant.
   const angle = Math.random() * Math.PI * 2;
-  const x = Math.max(80, Math.min(WORLD.width - 80, p.x + Math.cos(angle) * 700));
-  const y = Math.max(80, Math.min(WORLD.height - 80, p.y + Math.sin(angle) * 700));
+  let x = Math.max(80, Math.min(WORLD.width - 80, p.x + Math.cos(angle) * 700));
+  let y = Math.max(80, Math.min(WORLD.height - 80, p.y + Math.sin(angle) * 700));
+  // Round 3: a cruiser used to spawn inside a building and sit there
+  // ramming the wall. Slide it to the nearest road point instead.
+  if (hitsBuilding(G.city, x, y, 24)) {
+    const rp = nearestRoadPoint(x, y);
+    x = rp.x;
+    y = rp.y;
+  }
   const car = {
     x, y, angle: Math.atan2(p.y - y, p.x - x), speed: 0,
     color: '#1b2a4a', police: true, stolen: false, parked: false, traffic: false,

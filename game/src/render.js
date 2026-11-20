@@ -116,6 +116,39 @@ export function createRenderer(canvas) {
     }
   }
 
+  // Round 3: a street lamp — pole, warm head, and a soft glow pool on the
+  // sidewalk — plus a squat red hydrant, both from city.spawnStreetProps.
+  function drawStreetLamp(x, y) {
+    ctx.fillStyle = 'rgba(255,214,120,0.13)';
+    ctx.beginPath();
+    ctx.arc(x, y, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#3a3f4a';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, y - 34);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd678';
+    ctx.beginPath();
+    ctx.arc(x, y - 36, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.beginPath();
+    ctx.arc(x, y - 36, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 1;
+  }
+
+  function drawHydrant(x, y) {
+    ctx.fillStyle = '#c1272d';
+    ctx.fillRect(x - 5, y - 10, 10, 14);
+    ctx.fillStyle = '#8f1d21';
+    ctx.fillRect(x - 7, y - 4, 14, 5);
+    ctx.fillStyle = '#e8b4b8';
+    ctx.fillRect(x - 5, y - 13, 10, 3);
+  }
+
   function drawCarShape(car) {
     ctx.save();
     ctx.translate(car.x, car.y);
@@ -384,9 +417,11 @@ export function createRenderer(canvas) {
       if (b.landmark) label(b.landmark, b.x + b.w / 2, b.y + b.h / 2, 20, 'rgba(255,255,255,0.9)');
     }
 
-    // Beach umbrellas with towels, then the palms.
+    // Beach umbrellas with towels, then the palms, lamps and hydrants.
     for (const u of G.city.umbrellas) drawUmbrella(u);
     for (const palm of G.city.palms) drawPalm(palm.x, palm.y, palm.lean, palm.size, G.time);
+    for (const lamp of G.city.lamps || []) drawStreetLamp(lamp.x, lamp.y);
+    for (const hyd of G.city.hydrants || []) drawHydrant(hyd.x, hyd.y);
 
     // Named place labels.
     label('MARINA PIER', PLACES.pier.x - 60, PLACES.pier.y - 60, 18, '#ffffff');
@@ -451,11 +486,13 @@ export function createRenderer(canvas) {
     for (const ped of G.peds) drawPersonShape(ped.x, ped.y, ped.angle, ped.color, ped.walkPhase, false);
     for (const g of G.gang) {
       drawPersonShape(g.x, g.y, g.angle, g.color, G.time * 8, true);
-      // Gang health bar.
+      // Gang health bar, with a small KING tag so the gang reads as gang
+      // even at a glance (round 3: the plaza shot).
       ctx.fillStyle = '#333';
       ctx.fillRect(g.x - 16, g.y - 28, 32, 6);
       ctx.fillStyle = '#c77dff';
       ctx.fillRect(g.x - 16, g.y - 28, 32 * (g.hp / g.maxHp), 6);
+      text('KING', g.x, g.y - 33, 9, '#e0aaff', 'center', true);
     }
     for (const cop of G.footCops) drawPersonShape(cop.x, cop.y, cop.angle, '#1b2a4a', G.time * 10, false);
 

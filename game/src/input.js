@@ -91,7 +91,13 @@ export function createInput(canvas) {
       return held.has('ShiftLeft') || held.has('ShiftRight');
     },
     mouse() {
-      return { x: mouseX, y: mouseY, down: mouseDown };
+      // Clamp to the viewport: a mouse outside the window used to hand the
+      // aim code a point far off-screen (round 3 robustness).
+      return {
+        x: Math.max(0, Math.min(window.innerWidth, mouseX)),
+        y: Math.max(0, Math.min(window.innerHeight, mouseY)),
+        down: mouseDown,
+      };
     },
   };
 }

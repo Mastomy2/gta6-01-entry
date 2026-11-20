@@ -131,6 +131,16 @@ function collideCarWithWorld(G, car, nx, ny) {
   return false;
 }
 
+// A battered engine (hp < 50) puffs dark smoke from the hood while the car
+// rolls — the visible "this chase cost Rico" cue (round 3). Called every
+// frame from updatePlayerCar; the random gate keeps it a puff, not a cloud.
+export function emitDamageSmoke(G, car) {
+  if (car.hp >= 50 || Math.random() >= 0.45) return;
+  const hx = car.x + Math.cos(car.angle) * 24;
+  const hy = car.y + Math.sin(car.angle) * 24;
+  G.particles.damageSmoke(hx, hy, car.angle);
+}
+
 export function updatePlayerCar(G, dt, move) {
   const car = G.playerCar;
   if (!car) return;
@@ -191,11 +201,7 @@ export function updatePlayerCar(G, dt, move) {
     car._skidR = null;
   }
   // A damaged engine smokes dark from the hood.
-  if (car.hp < 55 && Math.random() < 0.3) {
-    const hx = car.x + Math.cos(car.angle) * 24;
-    const hy = car.y + Math.sin(car.angle) * 24;
-    G.particles.burst(hx, hy, 3, '#4a4a4a', 40, 1.1, 7);
-  }
+  emitDamageSmoke(G, car);
   // Exhaust smoke and speed audio.
   if (Math.abs(car.speed) > 60 && Math.random() < 0.5) G.particles.smoke(car.x, car.y, car.angle);
   G.audio.setEngine(Math.abs(car.speed) / maxSpeed);

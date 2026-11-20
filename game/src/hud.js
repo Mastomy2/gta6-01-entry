@@ -107,7 +107,22 @@ export function drawHud(G, ctx, w, h) {
     hint = 'W gas • S brake/reverse • A/D steer • E exit car • Click / Space shoot';
   }
   if (G.missionIndex === 4 && !G.mission.grabbed) hint = 'Get inside the BANK and hold position to crack the vault!';
-  text(ctx, hint, w / 2, h - 14, 15, 'rgba(255,255,255,0.85)', 'center');
+  // Context hint at the bottom, inside a pill with a safe margin from the
+  // edge: the bare text used to sit on y = h-14 and was clipped at the
+  // bottom of 1280x720 screenshots (round-3 fix).
+  ctx.font = `15px ${FONT}`;
+  const hintW = ctx.measureText(hint).width;
+  const pillW = hintW + 32;
+  const pillH = 30;
+  const pillX = (w - pillW) / 2;
+  const pillY = h - pillH - 12; // 12 px clear of the bottom edge
+  ctx.fillStyle = 'rgba(8, 20, 30, 0.78)';
+  ctx.beginPath();
+  ctx.roundRect(pillX, pillY, pillW, pillH, 15);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.stroke();
+  text(ctx, hint, w / 2, pillY + 20, 15, 'rgba(255,255,255,0.9)', 'center');
 
   drawMinimap(G, ctx, w, h);
 }

@@ -40,7 +40,9 @@ export function updatePlayerOnFoot(G, dt, move, running) {
 
 export function damagePlayer(G, amount, cause) {
   const p = G.player;
-  if (p.invulnerable > 0 || p.hp <= 0) return false;
+  // No damage after the run is already over (round 3: a late bullet used to
+  // re-trigger the game-over screen and its sound).
+  if (G.screen === 'over' || p.invulnerable > 0 || p.hp <= 0) return false;
   p.hp = Math.max(0, p.hp - amount);
   p.invulnerable = 0.6;
   G.particles.addShake(6);

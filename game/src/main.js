@@ -2,8 +2,9 @@
 // every frame, the world advances in fixed 1/60 s steps, and the renderer
 // paints what is there. Screens: title, play, paused, game over, win.
 //
-// ?demo=drive|wanted|mission|win stages a live scene for screenshots (the
-// real game, running, with its own systems) and sets window.__shotReady.
+// ?demo=drive|wanted|mission|win|chase|beach|plaza|heist stages a live scene
+// for screenshots (the real game, running, with its own systems) and sets
+// window.__shotReady. Heist is the round-3 cover: the Big Score getaway.
 // ?auto=1 runs a scripted autopilot (walk to a car, steal it, drive to the
 // mission marker, trigger the police) and logs each step to the console and
 // to #autolog, ending with window.__autoDone = true.
@@ -75,8 +76,9 @@ function createGameState() {
     save() { const ok = saveGame(G); G.announce(ok ? 'Game saved.' : 'Save failed (storage off).'); return ok; },
   };
   spawnParkedCars(G);
-  spawnTraffic(G, 14);
-  spawnPedestrians(G, 26);
+  // Round 3: a touch more life on the streets (16 cars, 32 walkers).
+  spawnTraffic(G, 16);
+  spawnPedestrians(G, 32);
   spawnPickups(G);
   startMission(G, 0);
   return G;
@@ -361,11 +363,30 @@ function setupDemoAndAuto(input) {
     G.playerCar.y = 1700;
     G.playerCar.angle = -Math.PI / 2;
     G.playerCar.speed = 300;
+    // Round 3: the getaway car is already battered, so the damage smoke
+    // reads in the shot, and the chase is staged tight — cruisers glued to
+    // the bumper, traffic ahead, pedestrians fleeing on the sidewalk.
+    G.playerCar.hp = 42;
+    G.playerCar.color = '#ffbe0b';
+    // Clear the getaway corridor: random traffic on the beach road (or
+    // about to cross it) used to meet Rico head-on and stall the chase
+    // at 1 km/h under a pile of cruisers. Staged cars live on x=2200.
+    G.traffic = G.traffic.filter((c) => Math.abs(c.x - 2800) > 250 || c.y < 600 || c.y > 2000);
     G.storyTimer = 0; // keep the story banner off the cruisers
     holdGas(input);
     G.copCap = 3; // exactly the three staged cruisers, no random extras
     for (let i = 0; i < 3; i += 1) {
-      G.copCars.push(makeChaseCop(2800 + (i === 1 ? -36 : i === 2 ? 36 : 0), 1700 + 110 + i * 70, -Math.PI / 2, 380));
+      G.copCars.push(makeChaseCop(2800 + (i === 1 ? -30 : i === 2 ? 30 : 0), 1700 + 90 + i * 55, -Math.PI / 2, 380));
+    }
+    // Two cars on the next road over (x=2200), visible in frame but never
+    // in Rico's lane: traffic in the getaway lane used to ram the player
+    // down to 94 km/h and break the chase (round-3 fix).
+    for (const [tx, ty, dir] of [[2200, 1400, -1], [2200, 1150, 1]]) {
+      const t = { x: tx, y: ty, angle: dir < 0 ? -Math.PI / 2 : Math.PI / 2, speed: 120, color: '#2a9d8f', police: false, stolen: false, parked: false, traffic: true, roadAxis: 'y', roadValue: 2200, dir, turnCooldown: 0, driver: true, hp: 100, braking: false };
+      G.traffic.push(t);
+    }
+    for (const [px, py] of [[2722, 1500], [2878, 1350], [2722, 1850]]) {
+      G.peds.push({ x: px, y: py, angle: Math.random() * Math.PI * 2, speed: 60, fleeing: false, fleeTimer: 0, color: '#f2c9d8', dead: false, driver: false, walkPhase: Math.random() * 6 });
     }
     // A big explosion ahead, refreshed so it is always burning at shot time.
     const boom = () => {
@@ -379,22 +400,39 @@ function setupDemoAndAuto(input) {
     };
     boom();
     window.setInterval(boom, 450);
-    window.setTimeout(() => { window.__shotReady = true; }, 1800);
+    // Shoot at 1.4 s, while the getaway is still at full speed: past that,
+    // the cruisers catch up and ram the speedometer down (round-3 fix).
+    window.setTimeout(() => { window.__shotReady = true; }, 1400);
   } else if (demo === 'beach') {
     // A 166 km/h cruise up the beach road, two cruisers chasing, the
     // safehouse waiting up ahead.
+    // Round 3: start further south (y=1400) so the SAFEHOUSE label sits
+    // off-frame instead of colliding with the mission banner, bright red
+    // getaway car so Rico reads at a glance, cruisers tucked in tight,
+    // traffic on the next road over and walkers on the beach-side sidewalk.
     audio.unlock();
     resetGame(false);
-    placePlayerInCar(G, 2800, 1000);
+    placePlayerInCar(G, 2800, 1400);
     G.playerCar.x = 2800;
-    G.playerCar.y = 1000;
+    G.playerCar.y = 1400;
     G.playerCar.angle = -Math.PI / 2;
     G.playerCar.speed = 300;
+    G.playerCar.color = '#e63946';
+    // Clear the getaway corridor (see the chase demo): random traffic on
+    // the beach road used to meet Rico head-on and stall the cruise.
+    G.traffic = G.traffic.filter((c) => Math.abs(c.x - 2800) > 250 || c.y < 600 || c.y > 2000);
     G.wanted = 1;
     G.storyTimer = 0;
     holdGas(input);
     for (let i = 0; i < 2; i += 1) {
-      G.copCars.push(makeChaseCop(2800 + (i === 0 ? -30 : 30), 1000 + 110 + i * 80, -Math.PI / 2, 360));
+      G.copCars.push(makeChaseCop(2800 + (i === 0 ? -24 : 24), 1400 + 90 + i * 60, -Math.PI / 2, 360));
+    }
+    for (const [tx, ty, dir] of [[2200, 1100, -1], [2200, 900, 1]]) {
+      const t = { x: tx, y: ty, angle: dir < 0 ? -Math.PI / 2 : Math.PI / 2, speed: 120, color: '#4361ee', police: false, stolen: false, parked: false, traffic: true, roadAxis: 'y', roadValue: 2200, dir, turnCooldown: 0, driver: true, hp: 100, braking: false };
+      G.traffic.push(t);
+    }
+    for (const [px, py] of [[2878, 1150], [2722, 950], [2722, 1250]]) {
+      G.peds.push({ x: px, y: py, angle: Math.random() * Math.PI * 2, speed: 55, fleeing: false, fleeTimer: 0, color: '#c9f2d4', dead: false, driver: false, walkPhase: Math.random() * 6 });
     }
     window.setTimeout(() => { window.__shotReady = true; }, 900);
   } else if (demo === 'plaza') {
@@ -407,16 +445,26 @@ function setupDemoAndAuto(input) {
     G.player.angle = -Math.PI / 2;
     G.storyTimer = 0;
     // Clear the traffic around Rico so the fight reads clean, and the
-    // parked car at the plaza edge so no King hides behind it.
+    // parked car at the plaza edge so no King hides behind it. Pickups near
+    // the plaza go too: their AMMO/HP labels used to read as stray text
+    // in the middle of the shot.
     G.traffic = G.traffic.filter((c) => dist(c, G.player) > 600);
     G.parked = G.parked.filter((c) => dist(c, G.player) > 300);
-    // Line the gang up north of Rico, facing him, and hold them there.
-    const spots = [[-130, -170], [-45, -190], [45, -190], [130, -170]];
+    G.pickups = G.pickups.filter((pk) => dist(pk, G.player) > 400);
+    // Round 3: the four Kings stand close enough to read as people, not
+    // dots — a tight arc 90-120 units out, facing Rico.
+    const spots = [[-90, -110], [-30, -120], [30, -120], [90, -110]];
     G.gang.forEach((g, i) => {
       g.x = G.player.x + spots[i][0];
       g.y = G.player.y + spots[i][1];
       g.speed = 0;
     });
+    // Two bystanders at the plaza edge, plus Rico's aim held on the middle
+    // Kings so the crosshair lands on the fight, not on empty pavement.
+    for (const [px, py] of [[1440, 1420], [1760, 1520]]) {
+      G.peds.push({ x: px, y: py, angle: Math.random() * Math.PI * 2, speed: 50, fleeing: false, fleeTimer: 0, color: '#f2e6c9', dead: false, driver: false, walkPhase: Math.random() * 6 });
+    }
+    input.mouse = () => ({ x: 640, y: 250, down: false });
     // A muzzle flash at Rico's gun every beat, so the shot catches one.
     window.setInterval(() => {
       if (G.screen !== 'play' || !G.player.onFoot) return;
@@ -430,6 +478,61 @@ function setupDemoAndAuto(input) {
       if (target) shootAt(G, G.player.x, G.player.y, Math.atan2(target.y - G.player.y, target.x - G.player.x));
       window.__shotReady = true;
     }, 1200);
+  } else if (demo === 'heist') {
+    // Cover 4 (round 3): mission 5 "The Big Score" right after the grab —
+    // vault cash in the bag ($5,000+), 5 stars, four cruisers glued to
+    // Rico's bumper on the beach road, a big explosion ahead, safehouse
+    // waiting up north. The getaway car is already battered (hp 42) so
+    // the damage smoke reads in the shot.
+    audio.unlock();
+    resetGame(false);
+    startMission(G, 4);
+    G.mission.grabbed = true;
+    G.wanted = 5;
+    G.money = 5250;
+    placePlayerInCar(G, 2800, 1700);
+    G.playerCar.x = 2800;
+    G.playerCar.y = 1700;
+    G.playerCar.angle = -Math.PI / 2;
+    G.playerCar.speed = 300;
+    G.playerCar.hp = 42;
+    G.playerCar.color = '#e63946';
+    // Clear the getaway corridor (see the chase demo): random traffic on
+    // the beach road used to meet Rico head-on and stall the getaway
+    // at 1 km/h under a pile of cruisers.
+    G.traffic = G.traffic.filter((c) => Math.abs(c.x - 2800) > 250 || c.y < 600 || c.y > 2000);
+    G.storyTimer = 0; // keep the story banner off the chase
+    holdGas(input);
+    G.copCap = 4; // exactly the four staged cruisers, no random extras
+    const copSpots = [[-30, 95], [30, 130], [-15, 170], [15, 215]];
+    for (const [dx, dy] of copSpots) {
+      G.copCars.push(makeChaseCop(2800 + dx, 1700 + dy, -Math.PI / 2, 390));
+    }
+    // Two cars on the next road over (x=2200), visible in frame but never
+    // in Rico's lane: lane traffic used to wedge the getaway into a
+    // standstill (2 km/h) with four cruisers ramming behind it (round-3 fix).
+    for (const [tx, ty, dir] of [[2200, 1400, -1], [2200, 1150, 1]]) {
+      const t = { x: tx, y: ty, angle: dir < 0 ? -Math.PI / 2 : Math.PI / 2, speed: 120, color: '#9b5de5', police: false, stolen: false, parked: false, traffic: true, roadAxis: 'y', roadValue: 2200, dir, turnCooldown: 0, driver: true, hp: 100, braking: false };
+      G.traffic.push(t);
+    }
+    for (const [px, py] of [[2722, 1500], [2878, 1350], [2722, 1850]]) {
+      G.peds.push({ x: px, y: py, angle: Math.random() * Math.PI * 2, speed: 60, fleeing: false, fleeTimer: 0, color: '#f2c9d8', dead: false, driver: false, walkPhase: Math.random() * 6 });
+    }
+    // A big explosion ahead, refreshed so it is always burning at shot time.
+    const boom = () => {
+      if (G.screen !== 'play') return;
+      const bx = G.player.x + Math.cos(G.player.angle) * 220;
+      const by = G.player.y + Math.sin(G.player.angle) * 220;
+      G.particles.burst(bx, by, 26, '#ff6b35', 260, 0.9, 6);
+      G.particles.burst(bx, by, 14, '#ffd166', 180, 0.7, 5);
+      G.particles.burst(bx, by, 10, '#5a5a5a', 60, 1.2, 8);
+      G.particles.addShake(2);
+    };
+    boom();
+    window.setInterval(boom, 450);
+    // Shoot at 1.4 s, while the getaway is still at full speed: past that,
+    // four cruisers ramming at once drag the speedometer down (round-3 fix).
+    window.setTimeout(() => { window.__shotReady = true; }, 1400);
   }
 
   if (autoMode) {

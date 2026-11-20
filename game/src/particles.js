@@ -56,6 +56,15 @@ export function createParticles() {
       const by = y - Math.sin(angle) * 22;
       spawn(bx, by, -Math.cos(angle) * 30 + (Math.random() - 0.5) * 20, -Math.sin(angle) * 30 + (Math.random() - 0.5) * 20, 0.7, 5 + Math.random() * 4, '#9aa5ad', -20);
     },
+    damageSmoke(x, y, angle) {
+      // Dark puffs drifting up and back from a battered hood (round 3).
+      for (let i = 0; i < 3; i += 1) {
+        spawn(x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 10,
+          -Math.cos(angle) * 30 + (Math.random() - 0.5) * 30,
+          -Math.sin(angle) * 30 - 30 - Math.random() * 20,
+          1.0 + Math.random() * 0.3, 6 + Math.random() * 4, '#4a4a4a', -25);
+      }
+    },
     sparks(x, y) { burst(x, y, 14, '#ffd166', 220, 0.5, 3); burst(x, y, 6, '#ff6b35', 140, 0.4, 4); },
     muzzle(x, y, angle) {
       burst(x, y, 5, '#ffe66d', 300, 0.12, 3);

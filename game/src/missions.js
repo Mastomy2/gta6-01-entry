@@ -61,6 +61,9 @@ export function missionTarget(G) {
 }
 
 export function startMission(G, index) {
+  // Clamp: a bad index used to read past MISSION_DEFS and crash the story
+  // text (round 3 robustness).
+  index = Math.max(0, Math.min(index, MISSION_DEFS.length - 1));
   G.missionIndex = index;
   const def = MISSION_DEFS[index];
   G.mission = { stolen: false, pickedUp: false, kills: 0, grabbed: false, timer: 0, grabTimer: 0 };

@@ -29,6 +29,9 @@ export function loadSave() {
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || data.version !== 1) return null;
+    // Round 3: a hand-edited or corrupt save with a non-numeric wallet
+    // used to poison the HUD money display; reject it outright.
+    if (!Number.isFinite(data.money) || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return null;
     return data;
   } catch {
     return null;
