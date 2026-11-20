@@ -47,6 +47,7 @@ function createGameState() {
     gang: [],
     bullets: [],
     pickups: [],
+    skids: [],
     particles,
     audio,
     money: 250,
@@ -158,6 +159,9 @@ function stepWorld(dt, input, actions) {
   updatePickups(G);
   updateMissions(G, dt);
   particles.update(dt);
+  // Skid marks fade out over a few seconds.
+  for (const s of G.skids) s.life -= dt / 4;
+  G.skids = G.skids.filter((s) => s.life > 0);
   if (G.playerCar && G.playerCar.hp <= 0) {
     G.playerCar.hp = 100;
     G.playerCar.speed = 0;
@@ -287,6 +291,27 @@ function placePlayerInCar(G, nearX, nearY) {
   return true;
 }
 
+function makeChaseCop(x, y, angle, speed) {
+  // A police cruiser placed for a demo chase, with the fields updatePolice expects.
+  return {
+    x, y, angle, speed,
+    color: '#1b2a4a', police: true, stolen: false, parked: false, traffic: false,
+    roadAxis: 'x', roadValue: 0, dir: 1, turnCooldown: 0, driver: false, hp: 100,
+    braking: false, lastRam: -10,
+  };
+}
+
+function holdGas(input) {
+  // Hold the gas in a demo chase so the car cruises at ~166 km/h (460 u/s).
+  const realMove = input.moveVector.bind(input);
+  input.moveVector = () => {
+    if (G.screen === SCREEN_PLAY && G.playerCar) {
+      return G.playerCar.speed < 460 ? { x: 0, y: -1 } : { x: 0, y: 0 };
+    }
+    return realMove();
+  };
+}
+
 function setupDemoAndAuto(input) {
   if (demo === 'drive') {
     audio.unlock();
@@ -324,6 +349,87 @@ function setupDemoAndAuto(input) {
     G.money = 12750;
     G.missionIndex = MISSION_DEFS.length;
     window.setTimeout(() => { window.__shotReady = true; }, 600);
+  } else if (demo === 'chase') {
+    // Cover: mission 3 "Heat" at 4 stars, three cruisers glued to Rico's
+    // bumper on the beach road, a big explosion ahead, gas held at 166 km/h.
+    audio.unlock();
+    resetGame(false);
+    startMission(G, 2);
+    G.wanted = 4;
+    placePlayerInCar(G, 2800, 1700);
+    G.playerCar.x = 2800;
+    G.playerCar.y = 1700;
+    G.playerCar.angle = -Math.PI / 2;
+    G.playerCar.speed = 300;
+    G.storyTimer = 0; // keep the story banner off the cruisers
+    holdGas(input);
+    G.copCap = 3; // exactly the three staged cruisers, no random extras
+    for (let i = 0; i < 3; i += 1) {
+      G.copCars.push(makeChaseCop(2800 + (i === 1 ? -36 : i === 2 ? 36 : 0), 1700 + 110 + i * 70, -Math.PI / 2, 380));
+    }
+    // A big explosion ahead, refreshed so it is always burning at shot time.
+    const boom = () => {
+      if (G.screen !== 'play') return;
+      const bx = G.player.x + Math.cos(G.player.angle) * 220;
+      const by = G.player.y + Math.sin(G.player.angle) * 220;
+      G.particles.burst(bx, by, 26, '#ff6b35', 260, 0.9, 6);
+      G.particles.burst(bx, by, 14, '#ffd166', 180, 0.7, 5);
+      G.particles.burst(bx, by, 10, '#5a5a5a', 60, 1.2, 8);
+      G.particles.addShake(2);
+    };
+    boom();
+    window.setInterval(boom, 450);
+    window.setTimeout(() => { window.__shotReady = true; }, 1800);
+  } else if (demo === 'beach') {
+    // A 166 km/h cruise up the beach road, two cruisers chasing, the
+    // safehouse waiting up ahead.
+    audio.unlock();
+    resetGame(false);
+    placePlayerInCar(G, 2800, 1000);
+    G.playerCar.x = 2800;
+    G.playerCar.y = 1000;
+    G.playerCar.angle = -Math.PI / 2;
+    G.playerCar.speed = 300;
+    G.wanted = 1;
+    G.storyTimer = 0;
+    holdGas(input);
+    for (let i = 0; i < 2; i += 1) {
+      G.copCars.push(makeChaseCop(2800 + (i === 0 ? -30 : 30), 1000 + 110 + i * 80, -Math.PI / 2, 360));
+    }
+    window.setTimeout(() => { window.__shotReady = true; }, 900);
+  } else if (demo === 'plaza') {
+    // Payback on foot: Rico facing the four Coral Kings at Plaza del Sol.
+    audio.unlock();
+    resetGame(false);
+    startMission(G, 3);
+    G.player.x = 1600;
+    G.player.y = 1580;
+    G.player.angle = -Math.PI / 2;
+    G.storyTimer = 0;
+    // Clear the traffic around Rico so the fight reads clean, and the
+    // parked car at the plaza edge so no King hides behind it.
+    G.traffic = G.traffic.filter((c) => dist(c, G.player) > 600);
+    G.parked = G.parked.filter((c) => dist(c, G.player) > 300);
+    // Line the gang up north of Rico, facing him, and hold them there.
+    const spots = [[-130, -170], [-45, -190], [45, -190], [130, -170]];
+    G.gang.forEach((g, i) => {
+      g.x = G.player.x + spots[i][0];
+      g.y = G.player.y + spots[i][1];
+      g.speed = 0;
+    });
+    // A muzzle flash at Rico's gun every beat, so the shot catches one.
+    window.setInterval(() => {
+      if (G.screen !== 'play' || !G.player.onFoot) return;
+      const aim = G.aimWorld || { x: G.player.x, y: G.player.y - 200 };
+      const angle = Math.atan2(aim.y - G.player.y, aim.x - G.player.x);
+      G.particles.muzzle(G.player.x + Math.cos(angle) * 26, G.player.y + Math.sin(angle) * 26, angle);
+    }, 180);
+    // One real shot at the nearest King as the screenshot lands.
+    window.setTimeout(() => {
+      const target = G.gang.find((g) => !g.dead);
+      if (target) shootAt(G, G.player.x, G.player.y, Math.atan2(target.y - G.player.y, target.x - G.player.x));
+      window.__shotReady = true;
+    }, 1200);
   }
 
   if (autoMode) {

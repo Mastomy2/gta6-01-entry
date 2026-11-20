@@ -31,15 +31,24 @@ export function drawHud(G, ctx, w, h) {
   text(ctx, `Ammo ${G.ammo}`, 24, 94, 16, '#ffe66d');
   text(ctx, p.onFoot ? 'ON FOOT' : 'DRIVING', 190, 94, 13, '#9ecbff');
 
-  // Top-right: wanted stars.
+  // Top-right: wanted stars. At 3+ stars they throb red.
   ctx.fillStyle = 'rgba(8, 20, 30, 0.72)';
   ctx.fillRect(w - 212, 12, 200, 52);
   ctx.strokeStyle = 'rgba(255,255,255,0.25)';
   ctx.strokeRect(w - 212, 12, 200, 52);
   text(ctx, 'WANTED', w - 200, 34, 13, '#ffb3b3', 'left', true);
-  for (let i = 0; i < 5; i += 1) {
-    text(ctx, '★', w - 200 + i * 34, 58, 26, i < G.wanted ? '#ffd60a' : '#445', 'left');
+  const hot = G.wanted >= 3;
+  if (hot) {
+    ctx.save();
+    ctx.shadowColor = '#ff2e2e';
+    ctx.shadowBlur = 12 + Math.sin(G.time * 6) * 6;
   }
+  for (let i = 0; i < 5; i += 1) {
+    const lit = i < G.wanted;
+    const color = !lit ? '#445' : (hot && Math.floor(G.time * 3) % 2 === 0 ? '#ff3b30' : '#ffd60a');
+    text(ctx, '★', w - 200 + i * 34, 58, 26, color, 'left');
+  }
+  if (hot) ctx.restore();
 
   // Top-centre: mission title + objective + distance.
   const target = missionTarget(G);
@@ -60,13 +69,33 @@ export function drawHud(G, ctx, w, h) {
     text(ctx, `${Math.ceil(G.mission.timer)}s`, w / 2, 100, 30, G.mission.timer < 15 ? '#ff5d5d' : '#ffffff', 'center', true);
   }
 
-  // Story banner after a mission starts.
+  // Story banner after a mission starts, kept low so the middle of the
+  // screen stays clear for the action.
   if (G.storyTimer > 0 && G.storyText) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     const lines = wrapText(ctx, G.storyText, 620, 17);
     const bh = 24 + lines.length * 22;
-    ctx.fillRect((w - 660) / 2, h - 240, 660, bh);
-    lines.forEach((line, i) => text(ctx, line, w / 2, h - 240 + 30 + i * 22, 17, '#ffeec2', 'center'));
+    ctx.fillRect((w - 660) / 2, h - 150, 660, bh);
+    lines.forEach((line, i) => text(ctx, line, w / 2, h - 150 + 30 + i * 22, 17, '#ffeec2', 'center'));
+  }
+
+  // Speedometer, bottom-left, while driving.
+  if (!p.onFoot && G.playerCar) {
+    const car = G.playerCar;
+    const kmh = Math.round(Math.abs(car.speed) * 0.36);
+    const smoking = car.hp < 55;
+    ctx.fillStyle = 'rgba(8, 20, 30, 0.72)';
+    ctx.fillRect(12, h - 96, 230, 82);
+    ctx.strokeStyle = smoking ? '#ff5d5d' : 'rgba(255,255,255,0.25)';
+    ctx.strokeRect(12, h - 96, 230, 82);
+    text(ctx, `${kmh}`, 24, h - 58, 34, '#ffffff', 'left', true);
+    text(ctx, 'km/h', 24 + ctx.measureText(`${kmh}`).width + 8, h - 58, 16, '#9ecbff', 'left', true);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(24, h - 44, 206, 10);
+    ctx.fillStyle = kmh > 140 ? '#ff5d5d' : kmh > 90 ? '#ffd60a' : '#37d67a';
+    ctx.fillRect(24, h - 44, 206 * Math.min(1, Math.abs(car.speed) / 520), 10);
+    if (smoking) text(ctx, 'ENGINE SMOKING!', 24, h - 22, 14, '#ff5d5d', 'left', true);
+    else text(ctx, `CAR HP ${Math.ceil(car.hp)}`, 24, h - 22, 13, '#9ecbff', 'left');
   }
 
   // Context hint at the bottom.

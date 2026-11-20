@@ -1,7 +1,10 @@
 // Solmar Bay: the city itself. A fixed 3200x2400 world with a road grid, a
 // beach and sea on the east edge, a pier, and named blocks (bank, garage,
 // safehouse, hospital). Buildings are generated from a seeded RNG so the map
-// is identical every run. Collision and road queries live here.
+// is identical every run. The same RNG also deals every building a roof
+// variant (pool, helipad or AC boxes), plants the palms (a beach row, a ring
+// around Plaza del Sol, and a few scattered in the blocks) and the beach
+// umbrellas. Collision and road queries live here.
 
 export const WORLD = { width: 3200, height: 2400 };
 
@@ -21,6 +24,8 @@ export const PLACES = {
 };
 
 const BUILDING_COLORS = ['#c98f5f', '#b5764a', '#8fa3b8', '#a8b8c8', '#d9a066', '#7f96ad', '#e0b183', '#93a8bd'];
+const UMBRELLA_COLORS = ['#ff5d8f', '#ffd60a', '#06d6a0', '#4361ee', '#ff7b00'];
+const TOWEL_COLORS = ['#06d6a0', '#ff5d8f', '#ffd60a', '#9b5de5', '#4cc9f0'];
 
 function mulberry32(seed) {
   let a = seed | 0;
@@ -30,6 +35,15 @@ function mulberry32(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// Deal a roof variant from the seeded RNG: pools and helipads are rare.
+function dealRoof(rand) {
+  const r = rand();
+  if (r < 0.16) return 'pool';
+  if (r < 0.28) return 'helipad';
+  if (r < 0.55) return 'ac';
+  return 'plain';
 }
 
 export function createCity() {
@@ -51,7 +65,7 @@ export function createCity() {
         const h = 80 + rand() * Math.max(30, (y1 - y0) - 100);
         const x = x0 + rand() * Math.max(1, x1 - x0 - w);
         const y = y0 + rand() * Math.max(1, y1 - y0 - h);
-        const rect = { x, y, w, h, color: BUILDING_COLORS[Math.floor(rand() * BUILDING_COLORS.length)], height: 20 + rand() * 60 };
+        const rect = { x, y, w, h, color: BUILDING_COLORS[Math.floor(rand() * BUILDING_COLORS.length)], height: 20 + rand() * 60, roof: dealRoof(rand) };
         // Keep the named places and the spawn clear of buildings.
         let clear = true;
         for (const key of Object.keys(PLACES)) {
@@ -63,11 +77,69 @@ export function createCity() {
     }
   }
   // The bank is a big landmark building right on its corner.
-  buildings.push({ x: 1660, y: 820, w: 150, h: 110, color: '#e8d9a0', height: 90, landmark: 'BANK' });
-  buildings.push({ x: 340, y: 1840, w: 110, h: 90, color: '#7fae8a', height: 40, landmark: 'GARAGE' });
-  buildings.push({ x: 2740, y: 330, w: 110, h: 90, color: '#c97f7f', height: 45, landmark: 'SAFE' });
+  buildings.push({ x: 1660, y: 820, w: 150, h: 110, color: '#e8d9a0', height: 90, landmark: 'BANK', roof: 'helipad' });
+  buildings.push({ x: 340, y: 1840, w: 110, h: 90, color: '#7fae8a', height: 40, landmark: 'GARAGE', roof: 'plain' });
+  buildings.push({ x: 2740, y: 330, w: 110, h: 90, color: '#c97f7f', height: 45, landmark: 'SAFE', roof: 'pool' });
+  // Two showpiece roofs in the title screen's view: a helipad tower east of
+  // the spawn and a rooftop pool south-west of it.
+  buildings.push({ x: 1400, y: 620, w: 100, h: 90, color: '#8fa3b8', height: 70, roof: 'helipad' });
+  buildings.push({ x: 520, y: 1100, w: 110, h: 90, color: '#d9a066', height: 45, roof: 'pool' });
 
-  return { buildings, rand };
+  // Palms: a row down the beach, a ring around Plaza del Sol, and a few
+  // scattered through the blocks (kept clear of roads and buildings).
+  const palms = [];
+  for (let y = 180; y <= 2220; y += 150) {
+    palms.push({ x: 2948, y, lean: -0.4 + rand() * 0.8, size: 0.9 + rand() * 0.3 });
+  }
+  const plazaAngles = [35, 55, 125, 145, 215, 235, 305, 325];
+  for (const deg of plazaAngles) {
+    const a = (deg * Math.PI) / 180;
+    palms.push({
+      x: PLACES.plaza.x + Math.cos(a) * 210,
+      y: PLACES.plaza.y + Math.sin(a) * 210,
+      lean: -0.3 + rand() * 0.6,
+      size: 0.9 + rand() * 0.25,
+    });
+  }
+  let scattered = 0;
+  let tries = 0;
+  while (scattered < 7 && tries < 60) {
+    tries += 1;
+    const bx = Math.floor(rand() * (xs.length - 1));
+    const by = Math.floor(rand() * (ys.length - 1));
+    const x0 = xs[bx] + (bx === 0 ? 30 : ROAD_W / 2 + 34);
+    const x1 = xs[bx + 1] - (bx === xs.length - 2 ? 30 : ROAD_W / 2 + 34);
+    const y0 = ys[by] + (by === 0 ? 30 : ROAD_W / 2 + 34);
+    const y1 = ys[by + 1] - (by === ys.length - 2 ? 30 : ROAD_W / 2 + 34);
+    if (x1 - x0 < 60 || y1 - y0 < 60) continue;
+    const x = x0 + rand() * (x1 - x0);
+    const y = y0 + rand() * (y1 - y0);
+    if (x > 2880) continue;
+    let clear = true;
+    for (const b of buildings) {
+      if (x > b.x - 30 && x < b.x + b.w + 30 && y > b.y - 30 && y < b.y + b.h + 30) clear = false;
+    }
+    for (const key of Object.keys(PLACES)) {
+      const p = PLACES[key];
+      if (Math.hypot(p.x - x, p.y - y) < 130) clear = false;
+    }
+    if (!clear) continue;
+    palms.push({ x, y, lean: -0.4 + rand() * 0.8, size: 0.9 + rand() * 0.3 });
+    scattered += 1;
+  }
+
+  // Beach umbrellas with towels, down the sand strip.
+  const umbrellas = [];
+  for (let i = 0; i < 10; i += 1) {
+    umbrellas.push({
+      x: 2948 + rand() * 22,
+      y: 250 + i * 190 + rand() * 40,
+      color: UMBRELLA_COLORS[i % UMBRELLA_COLORS.length],
+      towel: TOWEL_COLORS[(i + 2) % TOWEL_COLORS.length],
+    });
+  }
+
+  return { buildings, palms, umbrellas, rand };
 }
 
 export function isOnRoad(x, y) {

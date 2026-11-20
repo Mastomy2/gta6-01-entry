@@ -33,6 +33,7 @@ export function makeCar(x, y, angle, color, opts) {
     turnCooldown: 0,
     driver: !!(opts && opts.driver),
     hp: 100,
+    braking: false,
   };
 }
 
@@ -167,6 +168,34 @@ export function updatePlayerCar(G, dt, move) {
   p.x = car.x;
   p.y = car.y;
   p.angle = car.angle;
+  // Braking: S held while still rolling forward.
+  car.braking = move.y > 0 && car.speed > 40;
+  // Hard cornering at speed leaves skid marks from the rear wheels.
+  const perpX = -Math.sin(car.angle);
+  const perpY = Math.cos(car.angle);
+  const rearX = car.x - Math.cos(car.angle) * 18;
+  const rearY = car.y - Math.sin(car.angle) * 18;
+  const wheelL = { x: rearX + perpX * 9, y: rearY + perpY * 9 };
+  const wheelR = { x: rearX - perpX * 9, y: rearY - perpY * 9 };
+  const skidding = Math.abs(steer) > 0.55 && Math.abs(car.speed) > 220;
+  if (skidding && car._skidL && car._skidR) {
+    G.skids.push({ x1: car._skidL.x, y1: car._skidL.y, x2: wheelL.x, y2: wheelL.y, life: 1 });
+    G.skids.push({ x1: car._skidR.x, y1: car._skidR.y, x2: wheelR.x, y2: wheelR.y, life: 1 });
+    if (G.skids.length > 500) G.skids.splice(0, G.skids.length - 500);
+  }
+  if (skidding) {
+    car._skidL = wheelL;
+    car._skidR = wheelR;
+  } else {
+    car._skidL = null;
+    car._skidR = null;
+  }
+  // A damaged engine smokes dark from the hood.
+  if (car.hp < 55 && Math.random() < 0.3) {
+    const hx = car.x + Math.cos(car.angle) * 24;
+    const hy = car.y + Math.sin(car.angle) * 24;
+    G.particles.burst(hx, hy, 3, '#4a4a4a', 40, 1.1, 7);
+  }
   // Exhaust smoke and speed audio.
   if (Math.abs(car.speed) > 60 && Math.random() < 0.5) G.particles.smoke(car.x, car.y, car.angle);
   G.audio.setEngine(Math.abs(car.speed) / maxSpeed);

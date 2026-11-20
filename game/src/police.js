@@ -55,6 +55,7 @@ function spawnCopCar(G) {
     x, y, angle: Math.atan2(p.y - y, p.x - x), speed: 0,
     color: '#1b2a4a', police: true, stolen: false, parked: false, traffic: false,
     roadAxis: 'x', roadValue: 0, dir: 1, turnCooldown: 0, driver: false, hp: 100,
+    braking: false, lastRam: -10,
   };
   G.copCars.push(car);
   return car;
@@ -72,7 +73,9 @@ function spawnFootCop(G) {
 
 export function updatePolice(G, dt) {
   const p = G.player;
-  const wantCars = G.wanted === 0 ? 0 : Math.min(1 + G.wanted, 6);
+  // A demo scene can cap the cruiser count (G.copCap) so its staged chase
+  // is not joined by extra cruisers spawning at random.
+  const wantCars = G.copCap ?? (G.wanted === 0 ? 0 : Math.min(1 + G.wanted, 6));
   while (G.copCars.length < wantCars) spawnCopCar(G);
   while (G.copCars.length > wantCars) G.copCars.pop();
   const wantFoot = G.wanted >= 2 ? Math.min(G.wanted - 1, 3) : 0;
@@ -102,14 +105,19 @@ export function updatePolice(G, dt) {
     } else {
       car.angle += Math.PI / 2;
     }
-    // Ram the player's car: damage + shake, and slow the player down.
+    // Ram the player's car: slow both down, spark and shake on contact,
+    // but the hull damage is throttled to once per 0.5 s per cruiser, so a
+    // touch no longer wrecks the player's car in a single frame.
     if (G.playerCar && dist(car, G.playerCar) < 46) {
       G.playerCar.speed *= 0.82;
       car.speed *= 0.9;
       G.particles.sparks(car.x, car.y);
       G.particles.addShake(7);
       G.audio.crash();
-      if (G.playerCar) G.playerCar.hp -= 2;
+      if (G.playerCar && G.time - car.lastRam >= 0.5) {
+        car.lastRam = G.time;
+        G.playerCar.hp -= 2;
+      }
     }
     // Ram the player on foot: heavy damage.
     if (p.onFoot && dist(car, p) < 34) {
