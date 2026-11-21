@@ -4,72 +4,75 @@
 [![rank](https://make.fun/badge/gta6-01/Mastomy2/gta6-01-entry/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/Mastomy2/gta6-01-entry/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-[gta6-01 bounty on make.fun](https://make.fun/bounty/gta6-01)
+An open-world crime game in the spirit of GTA 6, built from scratch in plain
+JavaScript and canvas. You are Rico Vega, wheelman of Solmar Bay — a
+sun-soaked coastal city with traffic, pedestrians, a beach, a palm park, a
+gang plaza, rooftop pools and a helipad.
 
-**Solmar Bay** is an original open-world crime game set in a sun-soaked bay city:
-five districts, traffic and pedestrians, a wanted level with police that escalate,
-a 10-job story, street races, a crew to recruit and a garage to spend your money in.
+Steal cars, outrun the Solmar PD across five wanted stars, run packages,
+settle the score with the Kings gang, and pull the Big Score: $5,250 on the
+line with five stars on your tail. Progress saves automatically.
 
-## Play
+## How to play
 
-Serve `game/` with any static server (for example `node serve.ts`) and open
-`http://localhost:8080` in desktop Chrome. No network is needed — everything
-the game loads is a file under `game/`.
+Serve `game/` with any static server (for example `node serve.ts`, then open
+http://localhost:8080) and play with the keyboard:
 
-- **WASD / Arrows** — drive (or walk on foot)
-- **Shift** — nitro boost
-- **E** — get in / out of a car, or steal the nearest one
-- **M** — start the next story job
-- **R** — start a street race in this district
-- **G** — open the garage: cars, upgrades, crew, district standing
-- **P** — pause
+- **WASD / arrows** — walk, or drive when in a car
+- **E** — steal a car / get out
+- **SPACE** — punch
+- **P** — pause, **M** — mute
 
-## The city
+## Missions
 
-- **5 districts** — Solmar Beach, Marina Bay, Downtown Solmar, Barrio Verde, The Docks —
-  each with its own look, standing (0–100) and jobs that unlock as your reputation grows.
-- **Living streets** — traffic that follows the roads and brakes for you, pedestrians
-  who stroll the sidewalks and flee a speeding car, palms, yachts in the bay,
-  rooftop pools and helipads, and a full day/night cycle with headlights and street glow.
+1. **First Wheels** — steal a car and bring it to the garage ($250)
+2. **Package Run** — pick up and deliver against the clock ($400)
+3. **Heat** — three stars: survive and lose the cops ($600)
+4. **Payback** — take down the Kings in the plaza ($900)
+5. **The Big Score** — crack Solmar Bank, then escape at five stars ($5,250)
 
-## The story — 10 jobs
+Every mission pays a **secondary bonus** for doing the job with style —
+a sports car to the garage (+$100), a delivery with 30s to spare (+$150),
+losing the heat early (+$150), leaving KING standing last (+$200), or
+escaping with the getaway car over 50 HP (+$250). Jobs can also fail in
+more ways than the clock: total the getaway car and the job restarts,
+trip the bank alarm and the vault resets. Briefings and outros play as
+dialogue subtitles at the bottom of the screen.
 
-From a first courier run (*First Wheels*) through a rival test (*Ghost's Test*),
-a dockside deal, a 3-star getaway, two street-race championships, the vault-truck
-heist (*The Bay Job*) and the finale (*Solmar Takeover*), each job pays cash and
-raises your standing in its district.
+## A living city
 
-## Crew
+- **Day/night cycle** — a 4-minute day rolls from dawn to noon to dusk to
+  deep night; street lamps glow after dark and the HUD clock shows the
+  time, the phase, and the rain.
+- **Weather** — showers blow in on their own, soak the roads until they
+  shine, and slant across the screen in the wind.
+- **Random events** — street races tear down the avenues (checkered flag,
+  minimap icon), and while you are wanted the Solmar PD runs raids: a
+  surge of cruisers around a red danger zone drawn on the minimap.
+- **Reactions** — pedestrians run from speeding cars, punches, fresh
+  explosions, and raid cordons.
+- **Bigger booms** — explosions throw debris and a shockwave ring, and the
+  camera kicks (screen shake) on hard crashes, rams, and blasts.
 
-Recruit four specialists, each with a real ability: **Mara "Ghost"** (driver),
-**Rico "Wrench"** (mechanic), **Lena "Byte"** (hacker) and **Dex "Boom"** (muscle).
-Up to three ride with you at once.
+## Demo scenes
 
-## Police escalation
+Open the game with a scene parameter for a staged shot of the city alive:
 
-Heat builds into 1–5 wanted stars. Patrols chase and ram you, 3 stars bring
-roadblocks, 4 stars add spike strips, and 5 stars put a helicopter overhead.
-Get busted and the city takes its fine.
+- `?scene=chase` — high-speed pursuit at night in the rain, raid zone ahead
+- `?scene=beach` — Ocean Drive at dusk in a shower, wet sand and lamps
+- `?scene=plaza` — the Kings, led by KING himself, mid-standoff
+- `?scene=heist` — five stars, $5,250, flat out in the night rain
+- `?auto=1` — the autopilot plays mission 1 by itself
 
-## Economy
+## Structure
 
-Jobs and race wins pay. Spend it in the garage on four cars (Comet GT, Vulcan S,
-Sabre Turbo, Phantom X), engine / armour / nitro upgrades, and crew contracts.
+`game/src/` is split into one clear job per file: `config` (tuning),
+`random` (seeded RNG), `world` (the city), `input`, `audio` (WebAudio synth),
+`particles`, `vehicles` (cars and traffic), `pedestrians`, `police`,
+`player`, `gang`, `missions`, `render`, `hud`, `save`, `scenes`, `main`
+(the loop), plus the round-8 systems: `weather` (day/night + rain),
+`events` (street races + police raids), `dialogue` (briefings and
+subtitles), and `shake` (screen shake). No libraries, no network requests,
+no build step.
 
-## Files
-
-- `game/index.html` — the page; `game/src/main.js` — bootstrap and game loop.
-- `game/src/config.js` — city, crew, cars, missions and races data.
-- `game/src/world.js` — city generation; `vehicles.js` — driving and traffic;
-  `player.js` — driving, walking, stealing; `pedestrians.js` — sidewalk life.
-- `game/src/police.js` — wanted level and pursuit; `gang.js` — crew, standing, shop;
-  `missions.js` — story jobs and street races; `particles.js` — effects.
-- `game/src/render.js` — canvas renderer and day/night; `hud.js` — HUD, minimap, menus.
-- `game/src/input.js`, `audio.js` (synth sound, no audio files), `save.js`, `scenes.js`.
-- `main.ts` — copies `game/` and `screenshots/` to `/output` and writes `dossier.json`.
-- `screenshots/` — four screenshots of the game itself: a night chase, a beach race,
-  the vault-truck heist, and the garage.
-
-## License
-
-MIT — see `LICENSE`.
+An original fan-made game. Not affiliated with Rockstar Games.
