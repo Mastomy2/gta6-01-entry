@@ -1,55 +1,41 @@
-// Solmar Bay — keyboard input.
-// One job: track which keys are held and which were just pressed this frame.
-
+// Solmar Bay — keyboard: state tombol + deteksi sekali tekan.
 export function createInput() {
+  const down = new Set();
+  const pressed = new Set();
   const input = {
-    held: new Set(),
-    pressed: new Set(),
-    anyKey: false,
+    isDown(code) { return down.has(code); },
+    wasPressed(code) { return pressed.has(code); },
+    consume(code) { pressed.delete(code); },
+    clearPressed() { pressed.clear(); },
   };
-  const code = (e) => e.code;
-
-  window.addEventListener('keydown', (e) => {
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+  function onKeyDown(e) {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab'].includes(e.code)) {
       e.preventDefault();
     }
-    if (!input.held.has(code(e))) input.pressed.add(code(e));
-    input.held.add(code(e));
-    input.anyKey = true;
-  });
-  window.addEventListener('keyup', (e) => {
-    input.held.delete(code(e));
-  });
-  window.addEventListener('blur', () => {
-    input.held.clear();
-  });
+    if (!e.repeat) pressed.add(e.code);
+    down.add(e.code);
+  }
+  function onKeyUp(e) { down.delete(e.code); }
+  function onBlur() { down.clear(); pressed.clear(); }
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
+  input.dispose = () => {
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('blur', onBlur);
+  };
   return input;
 }
 
-export function isDown(input, ...codes) {
-  return codes.some((c) => input.held.has(c));
-}
-
-// Movement vector from WASD / arrows, normalised.
-export function moveVector(input) {
-  let x = 0;
-  let y = 0;
-  if (isDown(input, 'KeyA', 'ArrowLeft')) x -= 1;
-  if (isDown(input, 'KeyD', 'ArrowRight')) x += 1;
-  if (isDown(input, 'KeyW', 'ArrowUp')) y -= 1;
-  if (isDown(input, 'KeyS', 'ArrowDown')) y += 1;
-  if (x !== 0 && y !== 0) {
-    x *= Math.SQRT1_2;
-    y *= Math.SQRT1_2;
-  }
-  return { x, y };
-}
-
-export function wasPressed(input, ...codes) {
-  return codes.some((c) => input.pressed.has(c));
-}
-
-export function endFrame(input) {
-  input.pressed.clear();
-  input.anyKey = false;
-}
+// Peta kontrol untuk layar menu & bantuan.
+export const CONTROL_HELP = [
+  ['W A S D / Arrows', 'Drive / walk'],
+  ['Shift', 'Nitro boost'],
+  ['E', 'Enter car / steal nearest car'],
+  ['M', 'Start the next story job'],
+  ['R', 'Start a street race here'],
+  ['G', 'Open the garage (cars, upgrades, crew)'],
+  ['P', 'Pause'],
+  ['Enter', 'Confirm / continue'],
+];
