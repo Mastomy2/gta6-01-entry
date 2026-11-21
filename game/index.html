@@ -3,23 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmar Bay — Open-World Crime Game</title>
-<link rel="icon" href="data:,">
+<title>Solmar Bay — an open-world crime game</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0e1420; }
-  #game { display: block; width: 100vw; height: 100vh; }
-  #fallback {
-    display: none; position: fixed; inset: 0; color: #fff; background: #0e1420;
-    font: 16px sans-serif; text-align: center; padding-top: 40vh;
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0a0e14;
+    height: 100%;
+    overflow: hidden;
+    font-family: sans-serif;
+  }
+  #wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+  canvas {
+    width: min(100vw, 177.78vh);
+    height: min(100vh, 56.25vw);
+    background: #4d8a4a;
+    image-rendering: auto;
+  }
+  #status {
+    position: fixed;
+    left: 8px;
+    bottom: 6px;
+    color: rgba(255, 255, 255, 0.55);
+    font: 12px monospace;
+    pointer-events: none;
   }
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
-<div id="fallback">Solmar Bay needs JavaScript and a modern browser to play.</div>
-<script>
-  if (!window.requestAnimationFrame) document.getElementById('fallback').style.display = 'block';
-</script>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+</div>
+<div id="status"></div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
