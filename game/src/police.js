@@ -1,196 +1,152 @@
-// Solmar Bay — polisi: wanted level, kejar-kejaran, roadblock, spike strip, helikopter.
-import { POLICE_LEVELS, HEAT_PER_STAR, WORLD } from './config.js';
-import { clamp, dist, angleDiff } from './random.js';
-import { createCar, driveCar } from './vehicles.js';
-import { spawnParticles } from './particles.js';
-import { damagePlayerCar } from './player.js';
+// Solmar Bay — the police.
+// One job: wanted-level response. Cruisers spawn at the map edge and ram
+// the player; foot cops chase on foot and punch. Wanted decays when the
+// player stays clean and out of sight.
 
-export function wantedStars(state) {
-  return clamp(Math.floor(state.heat / HEAT_PER_STAR), 0, 5);
+import {
+  MAX_WANTED, COP_MAX_SPEED, COP_RAM_DAMAGE, COP_FOOT_SPEED,
+  COP_PUNCH_DAMAGE, WANTED_DECAY_SECONDS,
+} from './config.js';
+import { makeCar, driveCar } from './vehicles.js';
+import { nearestRoadPoint, angleDiff, dist, clampToWorld } from './world.js';
+import { spawnSparks } from './particles.js';
+
+export function createPolice() {
+  return {
+    cruisers: [],
+    footCops: [],
+    spawnTimer: 0,
+    decayTimer: 0,
+    sirenNear: false,
+  };
 }
 
-export function addHeat(state, n) {
-  state.heat = clamp(state.heat + n, 0, 100);
-  state.wanted = wantedStars(state);
-}
+export function updatePolice(S, dt) {
+  // Staged scenes script their own police (formation chase, plaza cop);
+  // the live AI would fight the staging.
+  if (S.sceneMode) return;
+  const police = S.police;
+  const wanted = S.player.wanted;
+  const px = S.player.x;
+  const py = S.player.y;
+  police.sirenNear = false;
 
-export function policeLevel(state) {
-  return POLICE_LEVELS[state.wanted] || POLICE_LEVELS[0];
-}
-
-// Spawn mobil polisi di jalan dekat pemain.
-function spawnPoliceCar(state, rng) {
-  const pp = state.player;
-  const angle = rng.range(0, Math.PI * 2);
-  const d = rng.range(520, 780);
-  const x = clamp(pp.x + Math.cos(angle) * d, 120, WORLD.width - 120);
-  const y = clamp(pp.y + Math.sin(angle) * d, 120, WORLD.height - 120);
-  const car = createCar({ topSpeed: 560, accel: 330, handling: 1.15 }, x, y, 0);
-  car.color = '#e8e8e8';
-  car.police = true;
-  car.bustTimer = 0;
-  return car;
-}
-
-export function updatePolice(state, dt) {
-  const rng = state.rng;
-  const bonus = state.crewBonus || { heatDecay: 1 };
-  // Heat memudar; kru hacker mempercepat.
-  const decayRate = state.wanted === 0 ? 2.2 : 1.1;
-  state.heat = Math.max(0, state.heat - decayRate * (bonus.heatDecay || 1) * dt);
-  state.wanted = wantedStars(state);
-  const level = policeLevel(state);
-
-  // Jaga jumlah mobil polisi sesuai bintang.
-  while (state.police.length < level.maxCars) state.police.push(spawnPoliceCar(state, rng));
-  while (state.police.length > level.maxCars) state.police.pop();
-
-  const pp = state.player;
-  const ppPos = { x: pp.x, y: pp.y };
-  for (const cop of state.police) {
-    // Kejar pemain dengan sedikit prediksi arah.
-    const px = ppPos.x + Math.cos(pp.angle || 0) * (pp.speed || 0) * 0.35;
-    const py = ppPos.y + Math.sin(pp.angle || 0) * (pp.speed || 0) * 0.35;
-    const targetAngle = Math.atan2(py - cop.y, px - cop.x);
-    const diff = angleDiff(cop.angle, targetAngle);
-    const controls = {
-      up: true, down: false, nitro: false,
-      left: diff < -0.06, right: diff > 0.06,
-    };
-    // Kecepatan polisi mengikuti level eskalasi.
-    cop.def.topSpeed = level.speed;
-    driveCar(cop, controls, dt, { topSpeed: 1, accel: 1, handling: 1.1, nitroRate: 1 });
-    // Tabrakan dengan pemain: dorong + rusak.
-    const d = dist(cop.x, cop.y, ppPos.x, ppPos.y);
-    if (pp.mode === 'car' && d < 52) {
-      const push = 52 - d;
-      const nx = (ppPos.x - cop.x) / (d || 1), ny = (ppPos.y - cop.y) / (d || 1);
-      pp.car.x += nx * push * 0.6; pp.car.y += ny * push * 0.6;
-      if (cop.hitCooldown <= 0) {
-        cop.hitCooldown = 0.7;
-        damagePlayerCar(state, 7, 'ram');
-        spawnParticles(state, pp.car.x, pp.car.y, { count: 8, color: '#ffd24a', speed: 150, life: 0.4 });
-      }
-    }
-    // Bust: polisi menempel lama saat pemain nyaris diam.
-    if (pp.mode === 'car' && d < 62 && Math.abs(pp.speed) < 32) {
-      cop.bustTimer += dt;
-      if (cop.bustTimer > 2.2) bustPlayer(state);
-    } else {
-      cop.bustTimer = Math.max(0, cop.bustTimer - dt * 2);
-    }
-    // Polisi yang tertinggal jauh: teleport mendekat.
-    if (d > 1400) {
-      const a = rng.range(0, Math.PI * 2);
-      cop.x = clamp(ppPos.x + Math.cos(a) * 700, 120, WORLD.width - 120);
-      cop.y = clamp(ppPos.y + Math.sin(a) * 700, 120, WORLD.height - 120);
-    }
-    if (cop.hitCooldown > 0) cop.hitCooldown -= dt;
+  // --- Spawn cruisers up to the wanted level. ---
+  const wantCruisers = Math.min(wanted, 4);
+  police.spawnTimer -= dt;
+  if (police.cruisers.length < wantCruisers && police.spawnTimer <= 0) {
+    police.spawnTimer = 1.6;
+    const spot = nearestRoadPoint(px + (Math.random() < 0.5 ? -700 : 700), py + (Math.random() < 0.5 ? -500 : 500));
+    const car = makeCar(spot.x, spot.y, 0, 'cruiser', '#f0f0f0');
+    car.role = 'police';
+    car.cruiseSpeed = COP_MAX_SPEED;
+    police.cruisers.push(car);
+    S.cars.push(car);
   }
 
-  // Roadblock di bintang >= 3: dua mobil melintang di jalan depan pemain.
-  state.roadblockTimer -= dt;
-  if (state.wanted >= 3 && state.roadblockTimer <= 0) {
-    state.roadblockTimer = 24;
-    const ahead = 420;
-    const bx = ppPos.x + Math.cos(pp.angle || 0) * ahead;
-    const by = ppPos.y + Math.sin(pp.angle || 0) * ahead;
-    state.roadblocks = [
-      { x: bx, y: by, angle: (pp.angle || 0), life: 40 },
-      { x: bx + 60, y: by + 60, angle: (pp.angle || 0), life: 40 },
-    ];
-    state.messages.push({ text: 'Roadblock ahead — go around or through!', t: 0, color: '#ff6a5a' });
-  }
-  for (const rb of state.roadblocks) rb.life -= dt;
-  state.roadblocks = state.roadblocks.filter((r) => r.life > 0);
-
-  // Spike strip di bintang >= 4: bila dilindas, kecepatan jatuh.
-  state.spikeTimer -= dt;
-  if (state.wanted >= 4 && state.spikeTimer <= 0) {
-    state.spikeTimer = 18;
-    const ahead = 300;
-    state.spikes.push({
-      x: ppPos.x + Math.cos(pp.angle || 0) * ahead,
-      y: ppPos.y + Math.sin(pp.angle || 0) * ahead,
-      life: 25,
+  // --- Spawn foot cops when the player is on foot and wanted. ---
+  const wantFoot = S.player.onFoot ? Math.min(wanted, 3) : 0;
+  if (police.footCops.length < wantFoot && police.spawnTimer <= 0) {
+    police.spawnTimer = 2.2;
+    const spot = nearestRoadPoint(px + (Math.random() < 0.5 ? -260 : 260), py + (Math.random() < 0.5 ? -200 : 200));
+    police.footCops.push({
+      x: spot.x, y: spot.y, angle: 0, hp: 60,
+      punchTimer: 0, speed: COP_FOOT_SPEED,
     });
   }
-  for (const sp of state.spikes) {
-    sp.life -= dt;
-    if (pp.mode === 'car' && dist(pp.car.x, pp.car.y, sp.x, sp.y) < 46) {
-      pp.car.speed *= 0.35;
-      damagePlayerCar(state, 12, 'spikes');
-      spawnParticles(state, pp.car.x, pp.car.y, { count: 12, color: '#c9c9c9', speed: 200, life: 0.5 });
-      sp.life = 0;
-      state.messages.push({ text: 'Spike strip! Tyres shredded.', t: 0, color: '#ff6a5a' });
+
+  // --- Cruiser chase AI: steer at the player, ram, back off and re-aim. ---
+  for (const car of police.cruisers) {
+    if (car.dead) continue;
+    const target = S.player.car || { x: px, y: py };
+    const want = Math.atan2(target.y - car.y, target.x - car.x);
+    const diff = angleDiff(car.angle, want);
+    const steer = Math.max(-1, Math.min(1, diff * 2.2));
+    const d = dist(car.x, car.y, target.x, target.y);
+    const throttle = d > 60 ? 1 : 0.4;
+    driveCar(S, car, throttle, steer, dt);
+    // Hard cap so the player can still outrun them in a sport car.
+    if (car.speed > COP_MAX_SPEED) car.speed = COP_MAX_SPEED;
+    if (d < 900) police.sirenNear = true;
+    // Ram damage on contact with the player's car (not in staged scenes:
+    // the screenshot car must survive the shoot). One hit per cruiser
+    // per half second, so a chase wears the car down instead of
+    // deleting it on first contact.
+    if (!S.sceneMode && S.player.car && !S.player.car.dead && dist(car.x, car.y, S.player.car.x, S.player.car.y) < 48) {
+      const pc = S.player.car;
+      car.ramTimer = (car.ramTimer || 0) - dt;
+      if (car.ramTimer <= 0 && (Math.abs(car.speed) > 140 || Math.abs(pc.speed) > 140)) {
+        car.ramTimer = 0.6;
+        pc.hp -= 8;
+        spawnSparks(S.particles, (car.x + pc.x) / 2, (car.y + pc.y) / 2);
+        S.audio.crash();
+      }
+    }
+    // A cruiser that flips onto the player on foot busts him.
+    if (S.player.onFoot && d < 30 && Math.abs(car.speed) > 60) {
+      S.player.busted();
     }
   }
-  state.spikes = state.spikes.filter((s) => s.life > 0);
+  police.cruisers = police.cruisers.filter((c) => !c.dead);
 
-  // Helikopter di bintang 5: mengikuti dari atas.
-  if (state.wanted >= 5) {
-    state.heli.x += (ppPos.x - state.heli.x) * 0.6 * dt;
-    state.heli.y += (ppPos.y - state.heli.y) * 0.6 * dt;
-    state.heli.angle += dt * 1.4;
+  // --- Foot cop chase AI. ---
+  for (const cop of police.footCops) {
+    cop.punchTimer -= dt;
+    const d = dist(cop.x, cop.y, px, py);
+    if (S.player.onFoot && d < 34 && cop.punchTimer <= 0) {
+      cop.punchTimer = 0.9;
+      S.player.damage(COP_PUNCH_DAMAGE, 'beaten by a cop');
+      S.audio.punch();
+    }
+    if (S.player.onFoot) {
+      const a = Math.atan2(py - cop.y, px - cop.x);
+      cop.angle = a;
+      const sp = d > 60 ? COP_FOOT_SPEED : COP_FOOT_SPEED * 0.4;
+      const nx = cop.x + Math.cos(a) * sp * dt;
+      const ny = cop.y + Math.sin(a) * sp * dt;
+      const c = clampToWorld(nx, ny, 30);
+      cop.x = c.x;
+      cop.y = c.y;
+      if (d < 900) police.sirenNear = true;
+    }
+  }
+
+  // --- Wanted decay: clean play slowly cools the heat. ---
+  if (wanted > 0 && !S.player.recentCrime) {
+    police.decayTimer += dt;
+    if (police.decayTimer >= WANTED_DECAY_SECONDS) {
+      police.decayTimer = 0;
+      S.player.wanted = Math.max(0, wanted - 1);
+      if (S.player.wanted === 0) {
+        police.cruisers = [];
+        police.footCops = [];
+        S.cars = S.cars.filter((c) => c.role !== 'police');
+      }
+    }
+  } else {
+    police.decayTimer = 0;
   }
 }
 
-export function bustPlayer(state) {
-  const lost = Math.floor(state.money * 0.15);
-  state.money -= lost;
-  state.heat = 0;
-  state.wanted = 0;
-  state.police = [];
-  state.roadblocks = [];
-  state.spikes = [];
-  state.mode = 'busted';
-  state.bustedLost = lost;
-  state.mission = null;
-  state.race = null;
-  const s = state.world.spawn;
-  state.player.mode = 'car';
-  state.player.car.x = s.x; state.player.car.y = s.y;
-  state.player.car.angle = s.angle; state.player.car.speed = 0;
-  state.player.car.armor = Math.max(30, state.player.car.armor);
-}
-
-// Gambar roadblock, spike strip, dan helikopter.
-export function drawPoliceProps(ctx, state) {
-  for (const rb of state.roadblocks) {
+export function drawPolice(ctx, police) {
+  for (const cop of police.footCops) {
     ctx.save();
-    ctx.translate(rb.x, rb.y);
-    ctx.rotate(rb.angle);
-    ctx.fillStyle = '#2a2a2e';
-    ctx.fillRect(-8, -34, 16, 68);
-    ctx.fillStyle = '#ffd24a';
-    for (let i = -30; i < 30; i += 12) ctx.fillRect(-8, i, 16, 6);
-    ctx.fillStyle = '#ff2a2a';
-    ctx.beginPath(); ctx.arc(0, -38, 5, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-  }
-  for (const sp of state.spikes) {
-    ctx.save();
-    ctx.translate(sp.x, sp.y);
-    ctx.fillStyle = '#3a3a3a';
-    ctx.fillRect(-22, -4, 44, 8);
+    ctx.translate(cop.x, cop.y);
+    ctx.rotate(cop.angle + Math.PI / 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(1, 2, 9, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2b4fd8';
+    ctx.beginPath();
+    ctx.arc(0, 0, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a2f7a';
+    ctx.beginPath();
+    ctx.arc(0, -2, 6, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = '#d8d8d8';
-    for (let i = -18; i <= 18; i += 9) {
-      ctx.beginPath(); ctx.moveTo(i, -6); ctx.lineTo(i + 4, 0); ctx.lineTo(i, 6); ctx.closePath(); ctx.fill();
-    }
-    ctx.restore();
-  }
-  if (state.wanted >= 5) {
-    const h = state.heli;
-    ctx.save();
-    ctx.translate(h.x, h.y);
-    ctx.fillStyle = 'rgba(255, 240, 160, 0.10)';
-    ctx.beginPath(); ctx.arc(0, 0, 190, 0, Math.PI * 2); ctx.fill();
-    ctx.rotate(h.angle);
-    ctx.fillStyle = '#22242e';
-    ctx.fillRect(-16, -5, 32, 10);
-    ctx.strokeStyle = '#22242e';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(26, 0); ctx.stroke();
+    ctx.fillRect(-7, -11, 14, 4);
     ctx.restore();
   }
 }

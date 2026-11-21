@@ -1,141 +1,220 @@
-// Solmar Bay — generator kota: jalan grid, blok bangunan, teluk, pantai, palem.
-import { WORLD, DISTRICTS } from './config.js';
-import { makeRng, clamp } from './random.js';
+// Solmar Bay — the city itself.
+// One job: build the map (roads, blocks, buildings, beach, plaza, park,
+// props) and answer the questions gameplay asks about it: is this point a
+// road, is it inside a building, where is the nearest road.
 
-export function roadXs() {
-  const xs = [];
-  for (let i = 0; i < WORLD.roadCountX; i++) xs.push(WORLD.roadFirstX + i * WORLD.roadGapX);
-  return xs;
-}
-export function roadYs() {
-  const ys = [];
-  for (let i = 0; i < WORLD.roadCountY; i++) ys.push(WORLD.roadFirstY + i * WORLD.roadGapY);
-  return ys;
-}
+import {
+  WORLD_W, WORLD_H, ROAD_W, V_ROADS, H_ROADS, BEACH_Y, WATER_Y,
+  PLAZA, PARK, PALETTE,
+} from './config.js';
+import { makeRng, range, intRange, pick, chance } from './random.js';
 
-export function districtAt(x, y) {
-  for (const d of DISTRICTS) {
-    const r = d.rect;
-    if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return d;
-  }
-  return DISTRICTS[2];
-}
-
-export function isOnRoad(x, y) {
-  const half = WORLD.roadWidth / 2;
-  for (const rx of roadXs()) if (Math.abs(x - rx) <= half) return true;
-  for (const ry of roadYs()) if (Math.abs(y - ry) <= half) return true;
-  return false;
-}
-
-// Titik jalan terdekat (snap ke garis tengah jalan).
-export function nearestRoadPoint(x, y) {
-  let bestX = roadXs()[0], bestD = Infinity;
-  for (const rx of roadXs()) { const d = Math.abs(x - rx); if (d < bestD) { bestD = d; bestX = rx; } }
-  let bestY = roadYs()[0]; bestD = Infinity;
-  for (const ry of roadYs()) { const d = Math.abs(y - ry); if (d < bestD) { bestD = d; bestY = ry; } }
-  const dx = Math.abs(x - bestX), dy = Math.abs(y - bestY);
-  return dx < dy ? { x: bestX, y } : { x, y: bestY };
-}
-
-export function randomRoadPoint(rng) {
-  const xs = roadXs(), ys = roadYs();
-  if (rng.chance(0.5)) return { x: rng.pick(xs), y: rng.range(160, WORLD.height - 160) };
-  return { x: rng.range(160, WORLD.width - 160), y: rng.pick(ys) };
-}
-
-const ROOF_COLORS = ['#b8a88a', '#9a8f7a', '#c2b49a', '#8f9aa8', '#a88f7a', '#7a8a9a'];
-const WALL_COLORS = ['#d8cbb2', '#cbb89a', '#bfae94', '#d8d2c2', '#c2b2a2', '#aeb8c2'];
-const PALETTE = ['#e8e2d2', '#d8cbb2', '#cbb89a'];
-
-export function createWorld(seed) {
+export function buildWorld(seed) {
   const rng = makeRng(seed);
-  const xs = roadXs(), ys = roadYs();
-  const buildings = [];
-  const palms = [];
-  const containers = [];
-  const yachts = [];
+  const world = {
+    seed,
+    buildings: [],
+    lamps: [],
+    hydrants: [],
+    palms: [],
+    zebras: [],
+    pools: [],
+    helipad: null,
+    fountain: { x: PLAZA.cx, y: PLAZA.cy, r: 42 },
+  };
 
-  // Bangunan: satu atau dua per blok jalan.
-  for (let i = 0; i < xs.length - 1; i++) {
-    for (let j = 0; j < ys.length - 1; j++) {
-      const bx = xs[i] + WORLD.roadWidth / 2 + 14;
-      const by = ys[j] + WORLD.roadWidth / 2 + 14;
-      const bw = WORLD.roadGapX - WORLD.roadWidth - 28;
-      const bh = WORLD.roadGapY - WORLD.roadWidth - 28;
-      const d = districtAt(bx + bw / 2, by + bh / 2);
-      if (d.id === 'beach') continue; // strip pantai: boardwalk, bukan blok
-      const count = rng.chance(0.35) ? 2 : 1;
+  // Blocks are the rectangles between neighbouring roads. Each block gets
+  // buildings unless it is the plaza, the park, or the beach strip.
+  const xs = [0, ...V_ROADS, WORLD_W];
+  const ys = [0, ...H_ROADS, WORLD_H];
+  const roofColors = [PALETTE.buildingRoof, PALETTE.buildingRoof2, PALETTE.buildingRoof3];
+  for (let bi = 0; bi < xs.length - 1; bi++) {
+    for (let bj = 0; bj < ys.length - 1; bj++) {
+      const bx = xs[bi] + ROAD_W / 2 + 26;
+      const by = ys[bj] + ROAD_W / 2 + 26;
+      const bw = xs[bi + 1] - ROAD_W / 2 - 26 - bx;
+      const bh = ys[bj + 1] - ROAD_W / 2 - 26 - by;
+      if (bw < 90 || bh < 90) continue;
+      // Plaza block.
+      if (bx < PLAZA.x + PLAZA.w && bx + bw > PLAZA.x && by < PLAZA.y + PLAZA.h && by + bh > PLAZA.y) continue;
+      // Park block.
+      if (bx < PARK.x + PARK.w && bx + bw > PARK.x && by < PARK.y + PARK.h && by + bh > PARK.y) continue;
+      // Beach strip: nothing built south of the beach line.
+      if (by + bh > BEACH_Y - 40) continue;
+      const count = bw > 300 && bh > 220 && chance(rng, 0.55) ? 2 : 1;
       for (let k = 0; k < count; k++) {
-        const w = count === 2 ? bw / 2 - 8 : bw;
-        const h = count === 2 ? bh : bh;
-        const x = count === 2 ? bx + k * (bw / 2 + 8) : bx;
-        const tall = d.id === 'downtown' && rng.chance(0.55);
-        const roof = rng.chance(0.16) ? 'pool' : rng.chance(0.10) ? 'helipad' : 'plain';
-        buildings.push({
-          x, y: by, w, h,
-          wall: rng.pick(WALL_COLORS), roof: rng.pick(ROOF_COLORS),
-          height: tall ? rng.int(3, 6) : rng.int(1, 2),
-          roofProp: roof, district: d.id,
-          windows: rng.int(2, 5),
-        });
-      }
-      // Palem di sudut blok (lebih rapat di beach & marina).
-      if (rng.chance(d.id === 'marina' ? 0.7 : 0.4)) {
-        palms.push({ x: bx + rng.range(10, bw - 10), y: by + rng.range(10, bh - 10) });
+        let w, h, x, y;
+        if (count === 1) {
+          w = range(rng, bw * 0.55, bw * 0.8);
+          h = range(rng, bh * 0.55, bh * 0.8);
+          x = bx + (bw - w) / 2;
+          y = by + (bh - h) / 2;
+        } else if (k === 0) {
+          w = bw * 0.44;
+          h = bh * 0.8;
+          x = bx;
+          y = by + bh * 0.1;
+        } else {
+          w = bw * 0.44;
+          h = bh * 0.8;
+          x = bx + bw * 0.56;
+          y = by + bh * 0.1;
+        }
+        const roof = pick(rng, roofColors);
+        const building = { x, y, w, h, roof, pool: false, helipad: false };
+        if (chance(rng, 0.22) && w > 150 && h > 120) {
+          building.pool = true;
+          world.pools.push({ x: x + w * 0.55, y: y + h * 0.2, w: w * 0.32, h: h * 0.5 });
+        }
+        world.buildings.push(building);
       }
     }
   }
 
-  // Boardwalk pantai: deret palem + kios di strip utara.
-  for (let x = 160; x < WORLD.width - 120; x += 130) {
-    palms.push({ x: x + rng.range(-20, 20), y: 400 + rng.range(-14, 14) });
-    if (rng.chance(0.3)) {
-      buildings.push({ x, y: 300, w: 46, h: 34, wall: rng.pick(PALETTE), roof: '#e8a13a',
-        height: 1, roofProp: 'plain', district: 'beach', windows: 1, kiosk: true });
+  // Helipad on the biggest north-east roof.
+  let best = null;
+  for (const b of world.buildings) {
+    if (b.x > 2400 && b.y < 700 && (!best || b.w * b.h > best.w * best.h)) best = b;
+  }
+  if (best) {
+    best.helipad = true;
+    world.helipad = { x: best.x + best.w / 2, y: best.y + best.h / 2, r: Math.min(best.w, best.h) * 0.32 };
+  }
+
+  // Street lamps along every road, on the sidewalk edge.
+  for (const x of V_ROADS) {
+    for (let y = 120; y < WORLD_H - 100; y += 280) {
+      world.lamps.push({ x: x - ROAD_W / 2 - 14, y });
+      world.lamps.push({ x: x + ROAD_W / 2 + 14, y: y + 140 });
+    }
+  }
+  for (const y of H_ROADS) {
+    for (let x = 120; x < WORLD_W - 100; x += 280) {
+      world.lamps.push({ x, y: y - ROAD_W / 2 - 14 });
+      world.lamps.push({ x: x + 140, y: y + ROAD_W / 2 + 14 });
     }
   }
 
-  // Teluk barat: deret yacht di air.
-  for (let i = 0; i < 7; i++) {
-    yachts.push({ x: 34 + rng.range(0, 40), y: 560 + i * 260 + rng.range(-40, 40), angle: rng.range(-0.3, 0.3) });
-  }
-
-  // Kontainer di docks.
+  // Fire hydrants near random corners.
   for (let i = 0; i < 26; i++) {
-    containers.push({
-      x: rng.range(2320, 3300), y: rng.range(560, 2500),
-      w: 64, h: 26, color: rng.pick(['#c96a3a', '#3a7ac9', '#4a9a4a', '#c9a13a', '#8a5fc9']),
+    const vx = pick(rng, V_ROADS);
+    const hy = pick(rng, H_ROADS);
+    world.hydrants.push({
+      x: vx + (chance(rng, 0.5) ? -1 : 1) * (ROAD_W / 2 + 22),
+      y: hy + (chance(rng, 0.5) ? -1 : 1) * (ROAD_W / 2 + 22),
     });
   }
 
-  // Zebra cross di setiap persimpangan.
-  const crossings = [];
-  for (const rx of xs) for (const ry of ys) crossings.push({ x: rx, y: ry });
-
-  // Titik spawn: garasi plaza downtown.
-  const spawn = { x: 1220, y: 880, angle: Math.PI / 2 };
-
-  return { seed, buildings, palms, containers, yachts, crossings, spawn };
-}
-
-// Apakah titik (x,y) menabrak bangunan? Kembalikan bangunan itu atau null.
-export function hitBuilding(world, x, y, pad) {
-  for (const b of world.buildings) {
-    if (x > b.x - pad && x < b.x + b.w + pad && y > b.y - pad && y < b.y + b.h + pad) return b;
+  // Palms: a row along Ocean Drive and a scatter through the park.
+  for (let x = 180; x < WORLD_W - 100; x += 170) {
+    world.palms.push({ x: x + range(rng, -20, 20), y: BEACH_Y - 70 + range(rng, -14, 14) });
   }
-  return null;
+  for (let i = 0; i < 18; i++) {
+    world.palms.push({
+      x: PARK.x + range(rng, 30, PARK.w - 30),
+      y: PARK.y + range(rng, 30, PARK.h - 30),
+    });
+  }
+  for (let i = 0; i < 8; i++) {
+    world.palms.push({
+      x: range(rng, 120, WORLD_W - 120),
+      y: range(rng, BEACH_Y + 30, WATER_Y - 30),
+    });
+  }
+
+  // Zebra crossings at every intersection.
+  for (const x of V_ROADS) {
+    for (const y of H_ROADS) {
+      world.zebras.push({ x, y });
+    }
+  }
+
+  return world;
 }
 
-// Dorong lingkaran keluar dari bangunan; kembalikan true bila bertabrakan.
-export function resolveBuildingCollision(world, obj, radius) {
-  const b = hitBuilding(world, obj.x, obj.y, radius * 0.5);
-  if (!b) return false;
-  const cx = clamp(obj.x, b.x, b.x + b.w);
-  const cy = clamp(obj.y, b.y, b.y + b.h);
-  const dx = obj.x - cx, dy = obj.y - cy;
-  const d = Math.hypot(dx, dy) || 0.001;
-  const push = radius - d;
-  if (push > 0) { obj.x += (dx / d) * push; obj.y += (dy / d) * push; }
-  return true;
+export function isOnRoad(x, y) {
+  for (const rx of V_ROADS) if (Math.abs(x - rx) <= ROAD_W / 2) return true;
+  for (const ry of H_ROADS) if (Math.abs(y - ry) <= ROAD_W / 2) return true;
+  return false;
+}
+
+export function isOnBeach(x, y) {
+  return y >= BEACH_Y && y < WATER_Y;
+}
+
+export function isInWater(x, y) {
+  return y >= WATER_Y;
+}
+
+// True when the point is inside any building (inflated a little).
+export function isBlocked(world, x, y, pad = 6) {
+  for (const b of world.buildings) {
+    if (x > b.x - pad && x < b.x + b.w + pad && y > b.y - pad && y < b.y + b.h + pad) return true;
+  }
+  return false;
+}
+
+export function clampToWorld(x, y, margin = 24) {
+  return {
+    x: Math.max(margin, Math.min(WORLD_W - margin, x)),
+    y: Math.max(margin, Math.min(WORLD_H - margin, y)),
+  };
+}
+
+// Nearest point on any road centreline, for spawning traffic and cops.
+export function nearestRoadPoint(x, y) {
+  let best = null;
+  let bestD = Infinity;
+  for (const rx of V_ROADS) {
+    const d = Math.abs(x - rx);
+    if (d < bestD) { bestD = d; best = { x: rx, y, axis: 'v', road: rx }; }
+  }
+  for (const ry of H_ROADS) {
+    const d = Math.abs(y - ry);
+    if (d < bestD) { bestD = d; best = { x, y: ry, axis: 'h', road: ry }; }
+  }
+  return best;
+}
+
+// A random point on a sidewalk beside a road (for pedestrians).
+export function randomSidewalkPoint(rng) {
+  if (chance(rng, 0.5)) {
+    const rx = pick(rng, V_ROADS);
+    return { x: rx + (chance(rng, 0.5) ? -1 : 1) * (ROAD_W / 2 + 26), y: range(rng, 80, WORLD_H - 80) };
+  }
+  const ry = pick(rng, H_ROADS);
+  return { x: range(rng, 80, WORLD_W - 80), y: ry + (chance(rng, 0.5) ? -1 : 1) * (ROAD_W / 2 + 26) };
+}
+
+// A random point on a road (for traffic spawn).
+export function randomRoadPoint(rng) {
+  if (chance(rng, 0.5)) {
+    return { x: pick(rng, V_ROADS), y: range(rng, 80, WORLD_H - 80), axis: 'v' };
+  }
+  return { x: range(rng, 80, WORLD_W - 80), y: pick(rng, H_ROADS), axis: 'h' };
+}
+
+export function randomParkedSpot(rng) {
+  // Parked along a roadside, clear of intersections.
+  const rx = pick(rng, V_ROADS);
+  const side = chance(rng, 0.5) ? -1 : 1;
+  let y = range(rng, 140, WORLD_H - 140);
+  for (const hy of H_ROADS) if (Math.abs(y - hy) < 110) y += 130;
+  return { x: rx + side * (ROAD_W / 2 - 16), y, angle: side > 0 ? Math.PI / 2 : -Math.PI / 2 };
+}
+
+export function angleTo(ax, ay, bx, by) {
+  return Math.atan2(by - ay, bx - ax);
+}
+
+export function dist(ax, ay, bx, by) {
+  return Math.hypot(bx - ax, by - ay);
+}
+
+// Shortest signed turn from angle a to angle b.
+export function angleDiff(a, b) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }
