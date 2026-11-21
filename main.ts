@@ -4,7 +4,7 @@
 // buildDossier from the kit's vendor/makefun-game.ts. Standard library
 // only; runs on Node 22 with no install and no network.
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { buildDossier } from './vendor/makefun-game.ts';
 
@@ -22,7 +22,6 @@ if (!existsSync(shotsDir)) {
   throw new Error('Solmar Bay: screenshots/ is missing, nothing to hand in');
 }
 
-rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 cpSync(gameDir, join(outDir, 'game'), { recursive: true });
 cpSync(shotsDir, join(outDir, 'screenshots'), { recursive: true });
