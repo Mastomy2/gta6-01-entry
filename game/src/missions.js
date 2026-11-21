@@ -1,295 +1,376 @@
-// Solmar Bay — mesin misi cerita 10 babak + balapan jalanan.
-import { MISSIONS, RACES } from './config.js';
-import { clamp, dist, angleDiff } from './random.js';
-import { createCar, driveCar } from './vehicles.js';
-import { addMoney, damagePlayerCar } from './player.js';
-import { addStanding, crewBonus } from './gang.js';
-import { spawnParticles } from './particles.js';
-import { addHeat } from './police.js';
+// Solmar Bay — the story: five missions in order.
+// One job: the mission state machine. Each mission is a small chain of
+// steps with a marker on the map, a line of objective text, a timer where
+// it matters, and a cash reward at the end.
+//
+// Round 8 depth: every mission now carries a secondary objective — an
+// optional bonus that pays extra for doing the job with style (a sports
+// car, a fast delivery, a cool head, a clean finish, a clean getaway).
+// Missions can also fail in more ways than the clock: total the getaway
+// car and the job restarts, trip the bank alarm and the vault resets,
+// lose the heat too slowly and the bonus is gone. Briefings and outros
+// play as dialogue subtitles, so the story is heard, not just read.
 
-export function availableMissions(state) {
-  return MISSIONS.filter((m, i) => {
-    if (state.missionsDone.includes(m.id)) return false;
-    if (i > 0 && !state.missionsDone.includes(MISSIONS[i - 1].id)) return false;
-    return (state.standing[m.district] || 0) >= m.standingReq;
-  });
-}
+import {
+  REWARDS, PLAZA, BONUS_SPORT_CAR, BONUS_FAST_DELIVERY, BONUS_COOL_HEAD,
+  BONUS_CLEAN_FINISH, BONUS_CLEAN_GETAWAY,
+} from './config.js';
+import { dist } from './world.js';
+import { say, MISSION_BRIEFINGS, MISSION_OUTROS } from './dialogue.js';
 
-export function nextMission(state) {
-  const list = availableMissions(state);
-  return list.length ? list[0] : null;
-}
+export const MISSION_NAMES = [
+  'First Wheels',
+  'Package Run',
+  'Heat',
+  'Payback',
+  'The Big Score',
+];
 
-export function missionMarker(state) {
-  if (!state.mission) return null;
-  const m = state.mission;
-  const stage = m.def.stages[m.stageIdx];
-  if (!stage) return null;
-  if (stage.type === 'ram' && m.target) return { x: m.target.x, y: m.target.y, label: stage.label };
-  if (stage.type === 'race') return null;
-  if (stage.type === 'escape') return null;
-  return { x: stage.x, y: stage.y, label: stage.label };
-}
+const MARKERS = {
+  garage: { x: 940, y: 380, label: 'Garage' },
+  pickup: { x: 2500, y: 860, label: 'Pickup' },
+  dropoff: { x: 420, y: 1820, label: 'Drop-off' },
+  hideout: { x: 3020, y: 2200, label: 'Hideout' },
+  bank: { x: 1980, y: 380, label: 'Solmar Bank' },
+  getaway: { x: 420, y: 2200, label: 'Getaway boat' },
+};
 
-export function startMission(state, id) {
-  const def = MISSIONS.find((m) => m.id === id);
-  if (!def) return false;
-  if (state.mission || state.race) return false;
-  state.mission = { def, stageIdx: 0, timer: 0, target: null, stageTime: 0 };
-  state.mode = 'play';
-  setupStage(state);
-  state.messages.push({ text: def.title + ' — ' + def.briefing, t: 0, color: '#ffd24a' });
-  return true;
-}
+const SIDE_DESCS = [
+  `Bonus: deliver a sports car (+$${BONUS_SPORT_CAR})`,
+  `Bonus: deliver with 30s+ left (+$${BONUS_FAST_DELIVERY})`,
+  `Bonus: lose the heat with 15s+ to spare (+$${BONUS_COOL_HEAD})`,
+  `Bonus: leave KING standing last (+$${BONUS_CLEAN_FINISH})`,
+  `Bonus: escape with the car over 50 HP (+$${BONUS_CLEAN_GETAWAY})`,
+];
 
-function setupStage(state) {
-  const m = state.mission;
-  const stage = m.def.stages[m.stageIdx];
-  m.stageTime = 0;
-  if (stage.type === 'timed') m.timer = stage.seconds;
-  if (stage.type === 'escape') {
-    m.timer = stage.seconds;
-    if (stage.stars) addHeat(state, stage.stars * 20 - state.heat);
-  }
-  if (stage.type === 'ram') {
-    const pp = state.player;
-    const isVault = stage.target === 'vault';
-    const car = createCar({ topSpeed: isVault ? 300 : 460, accel: 240, handling: 1 }, pp.x + 320, pp.y - 120, 0);
-    car.color = isVault ? '#e8e8e8' : '#8a2a8a';
-    car.armor = isVault ? 130 : 90;
-    car.maxArmor = car.armor;
-    car.kind = stage.target;
-    car.waypoints = loopWaypoints(car.x, car.y);
-    car.wpIdx = 0;
-    car.hitCooldown = 0;
-    m.target = car;
-  }
-  if (stage.type === 'race') {
-    startRace(state, stage.raceId, true);
-  }
-}
-
-function loopWaypoints(x, y) {
-  return [
-    { x: x + 420, y }, { x: x + 420, y: y + 420 },
-    { x, y: y + 420 }, { x, y },
-  ];
-}
-
-function completeStage(state) {
-  const m = state.mission;
-  m.stageIdx++;
-  if (m.stageIdx >= m.def.stages.length) {
-    completeMission(state);
-    return;
-  }
-  setupStage(state);
-  const stage = m.def.stages[m.stageIdx];
-  state.messages.push({ text: 'Objective complete — ' + stage.label, t: 0, color: '#7ae86a' });
-}
-
-function failMission(state, reason) {
-  state.messages.push({ text: 'Job failed: ' + reason, t: 0, color: '#ff6a5a' });
-  state.mission = null;
-  state.race = null;
-}
-
-function completeMission(state) {
-  const m = state.mission;
-  const def = m.def;
-  const bonus = crewBonus(state);
-  const isHeist = def.id === 'm8' || def.id === 'm10';
-  const payout = Math.round(def.reward * (isHeist ? bonus.heistBonus : 1));
-  addMoney(state, payout);
-  if (def.id === 'm10') {
-    for (const d of ['marina', 'downtown', 'barrio', 'docks', 'beach']) addStanding(state, d, 10);
-  } else {
-    addStanding(state, def.district, 12);
-  }
-  state.missionsDone.push(def.id);
-  if (def.crewUnlock && !state.crew.owned.includes(def.crewUnlock)) {
-    state.crew.owned.push(def.crewUnlock);
-    state.crew.active.push(def.crewUnlock);
-    if (state.crew.active.length > 3) state.crew.active.shift();
-    state.messages.push({ text: 'New crew member joined! Check the garage (G).', t: 0, color: '#7ae86a' });
-  }
-  state.messages.push({ text: def.title + ' complete — earned $' + payout.toLocaleString('en-US') + ', standing up in ' + def.district + '.', t: 0, color: '#7ae86a' });
-  state.mission = null;
-}
-
-export function updateMission(state, dt) {
-  const m = state.mission;
-  if (!m) return;
-  const stage = m.def.stages[m.stageIdx];
-  if (!stage) return;
-  m.stageTime += dt;
-  const pp = state.player;
-
-  if (stage.type === 'goto' || stage.type === 'pickup' || stage.type === 'deliver') {
-    if (dist(pp.x, pp.y, stage.x, stage.y) < 78) {
-      if (stage.type === 'pickup') spawnParticles(state, stage.x, stage.y, { count: 14, color: '#7ae86a', speed: 120, life: 0.7 });
-      completeStage(state);
-    }
-    return;
-  }
-  if (stage.type === 'timed') {
-    m.timer -= dt;
-    if (dist(pp.x, pp.y, stage.x, stage.y) < 78) { completeStage(state); return; }
-    if (m.timer <= 0) { failMission(state, 'out of time'); return; }
-    return;
-  }
-  if (stage.type === 'escape') {
-    m.timer -= dt;
-    if ((state.wanted === 0 && m.stageTime > 3) || m.timer <= 0) { completeStage(state); return; }
-    return;
-  }
-  if (stage.type === 'ram' && m.target) {
-    const t = m.target;
-    updateTargetCar(state, t, dt);
-    const d = dist(pp.x, pp.y, t.x, t.y);
-    if (pp.mode === 'car' && d < 58 && t.hitCooldown <= 0 && Math.abs(pp.speed) > 90) {
-      t.hitCooldown = 0.6;
-      const dmg = Math.round(14 * (crewBonus(state).ramDealt || 1) + Math.abs(pp.speed) * 0.03);
-      t.armor -= dmg;
-      damagePlayerCar(state, 4, 'ram');
-      spawnParticles(state, t.x, t.y, { count: 12, color: '#ffd24a', speed: 200, life: 0.5 });
-      if (t.armor <= 0) {
-        spawnParticles(state, t.x, t.y, { count: 24, color: '#ff7a2a', speed: 260, life: 0.9 });
-        m.target = null;
-        completeStage(state);
-      }
-    }
-    if (t.hitCooldown > 0) t.hitCooldown -= dt;
-    return;
-  }
-  if (stage.type === 'race') {
-    if (state.race && state.race.finished) {
-      const won = state.race.position === 1;
-      state.race = null;
-      if (won) completeStage(state);
-      else failMission(state, 'you lost the race');
-    }
-  }
-}
-
-// Mobil target misi: ikut loop waypoint, kabur pelan dari pemain bila rival.
-function updateTargetCar(state, t, dt) {
-  const wp = t.waypoints[t.wpIdx];
-  const d = dist(t.x, t.y, wp.x, wp.y);
-  if (d < 60) t.wpIdx = (t.wpIdx + 1) % t.waypoints.length;
-  const targetAngle = Math.atan2(wp.y - t.y, wp.x - t.x);
-  const diff = angleDiff(t.angle, targetAngle);
-  driveCar(t, { up: true, down: false, left: diff < -0.05, right: diff > 0.05, nitro: false },
-    dt, { topSpeed: 1, accel: 1, handling: 1, nitroRate: 1 });
-}
-
-// ---------- Balapan jalanan ----------
-
-export function raceDef(id) {
-  return RACES.find((r) => r.id === id);
-}
-
-export function startRace(state, raceId, fromMission) {
-  const def = raceDef(raceId);
-  if (!def || state.race) return false;
-  const cps = def.checkpoints;
-  const dir = Math.atan2(cps[1].y - cps[0].y, cps[1].x - cps[0].x);
-  const backX = Math.cos(dir), backY = Math.sin(dir);
-  const place = (i, lane) => ({
-    x: cps[0].x - backX * (140 + i * 55) - backY * lane,
-    y: cps[0].y - backY * (140 + i * 55) + backX * lane,
-  });
-  const p0 = place(0, 0);
-  state.player.car.x = p0.x; state.player.car.y = p0.y;
-  state.player.car.angle = dir; state.player.car.speed = 0;
-  state.player.mode = 'car';
-  const oppColors = ['#2e6fd8', '#e8a13a', '#8a2a8a'];
-  const opponents = oppColors.map((color, i) => {
-    const p = place(i + 1, i % 2 === 0 ? 34 : -34);
-    const car = createCar({ topSpeed: 400 + i * 18, accel: 300, handling: 1.05 }, p.x, p.y, dir);
-    car.color = color;
-    car.cpIdx = 0; car.lap = 1; car.baseSpeed = 330 + i * 14;
-    return car;
-  });
-  state.race = {
-    def, lap: 1, cpIdx: 0, opponents, startTime: state.time,
-    finished: false, position: 1, fromMission: !!fromMission, raceTime: 0,
+export function createMissions() {
+  return {
+    index: 0, // 0..4, or 5 when the story is done
+    step: 0,
+    timer: 0,
+    holdTimer: 0,
+    packageHeld: false,
+    done: false,
+    justCompleted: null,
+    // Round 8: secondary-objective and failure tracking.
+    carId: null, // the getaway car this mission depends on
+    heatLostAt: null, // M3: timer value when wanted first hit 0
+    kingLast: false, // M4: KING is the last gang member standing
+    vaultTimer: 0, // M5: seconds before the bank alarm trips
+    sideDone: false, // the current mission's bonus was earned
   };
-  state.messages.push({ text: def.name + ' — ' + def.laps + ' laps, ' + cps.length + ' checkpoints. Go!', t: 0, color: '#ffd24a' });
-  return true;
 }
 
-export function startNearestRace(state) {
-  if (state.race || state.mission) return false;
-  const d = state.currentDistrict || 'downtown';
-  const def = RACES.find((r) => r.district === d) || RACES[0];
-  return startRace(state, def.id, false);
+function marker(S) {
+  const m = S.missions;
+  switch (m.index) {
+    case 0: return m.step === 0 ? null : MARKERS.garage;
+    case 1: return m.step === 0 ? MARKERS.pickup : MARKERS.dropoff;
+    case 2: return null;
+    case 3: return { x: PLAZA.cx, y: PLAZA.cy, label: 'Kings plaza' };
+    case 4: return m.step === 0 ? MARKERS.bank : MARKERS.getaway;
+    default: return null;
+  }
 }
 
-function raceProgressOf(car, race) {
-  const cps = race.def.checkpoints;
-  const next = cps[car.cpIdx % cps.length];
-  return { lap: car.lap, cp: car.cpIdx, dist: dist(car.x, car.y, next.x, next.y) };
+export function currentObjective(S) {
+  const m = S.missions;
+  if (m.done) return 'Story complete — Solmar Bay is yours. Free roam!';
+  switch (m.index) {
+    case 0:
+      return m.step === 0
+        ? 'Mission 1 — First Wheels: steal a car (walk up to one, press E)'
+        : 'Mission 1 — First Wheels: drive to the garage';
+    case 1:
+      return m.step === 0
+        ? 'Mission 2 — Package Run: pick up the package at the marker'
+        : `Mission 2 — Package Run: deliver it before the timer runs out (${Math.ceil(m.timer)}s)`;
+    case 2:
+      return `Mission 3 — Heat: the cops are on you. Survive ${Math.ceil(m.timer)}s and lose the heat`;
+    case 3:
+      return m.step === 0
+        ? 'Mission 4 — Payback: get to the Kings plaza'
+        : `Mission 4 — Payback: take down the Kings (${gangLeft(S)} left)`;
+    case 4:
+      return m.step === 0
+        ? 'Mission 5 — The Big Score: reach Solmar Bank'
+        : m.step === 1
+          ? `Mission 5 — The Big Score: crack the vault… hold still ${Math.ceil(m.holdTimer)}s (${Math.ceil(m.vaultTimer)}s to alarm)`
+          : 'Mission 5 — The Big Score: FIVE STARS — reach the getaway boat!';
+    default:
+      return '';
+  }
 }
 
-export function updateRace(state, dt) {
-  const race = state.race;
-  if (!race || race.finished) return;
-  race.raceTime += dt;
-  const cps = race.def.checkpoints;
-  const pp = state.player;
+// The secondary objective line under the objective bar. Empty when there
+// is no bonus left to chase (story done, or bonus already earned).
+export function currentSecondary(S) {
+  const m = S.missions;
+  if (m.done) return '';
+  if (m.sideDone) return 'Bonus earned — nice driving.';
+  return SIDE_DESCS[m.index] || '';
+}
 
-  // Checkpoint pemain.
-  const nextCp = cps[race.cpIdx];
-  if (pp.mode === 'car' && dist(pp.x, pp.y, nextCp.x, nextCp.y) < 85) {
-    race.cpIdx++;
-    if (race.cpIdx >= cps.length) { race.cpIdx = 0; race.lap++; }
-    if (race.lap > race.def.laps) {
-      finishRace(state);
-      return;
+function gangLeft(S) {
+  return S.gang.filter((g) => g.hp > 0).length;
+}
+
+// The bonus for the mission just finished, from the state the player
+// actually reached — not from the objective text.
+function sideBonus(S) {
+  const m = S.missions;
+  const p = S.player;
+  switch (m.index) {
+    case 0: return p.car && p.car.kind === 'sport' ? BONUS_SPORT_CAR : 0;
+    case 1: return m.timer >= 30 ? BONUS_FAST_DELIVERY : 0;
+    case 2: return m.heatLostAt !== null && m.heatLostAt >= 15 ? BONUS_COOL_HEAD : 0;
+    case 3: return m.kingLast ? BONUS_CLEAN_FINISH : 0;
+    case 4: return p.car && p.car.hp > 50 ? BONUS_CLEAN_GETAWAY : 0;
+    default: return 0;
+  }
+}
+
+function completeMission(S) {
+  const m = S.missions;
+  const reward = REWARDS[m.index];
+  const bonus = sideBonus(S);
+  m.sideDone = bonus > 0;
+  S.player.earn(reward + bonus);
+  m.justCompleted = { name: MISSION_NAMES[m.index], reward: reward + bonus };
+  S.banner = bonus > 0
+    ? `${MISSION_NAMES[m.index]} complete — $${(reward + bonus).toLocaleString('en-US')} (incl. $${bonus} bonus)`
+    : `${MISSION_NAMES[m.index]} complete — $${reward.toLocaleString('en-US')}`;
+  S.bannerTimer = 3.5;
+  S.audio.missionDone();
+  S.audio.cash();
+  const outro = MISSION_OUTROS[m.index];
+  if (outro) say(S, outro[0], outro[1], 5);
+  m.index += 1;
+  m.step = 0;
+  m.timer = 0;
+  m.holdTimer = 0;
+  m.packageHeld = false;
+  m.carId = null;
+  m.heatLostAt = null;
+  m.kingLast = false;
+  m.vaultTimer = 0;
+  m.sideDone = false;
+  if (m.index >= MISSION_NAMES.length) {
+    m.done = true;
+    saveProgress(S);
+  } else {
+    startMission(S);
+  }
+}
+
+function startMission(S) {
+  const m = S.missions;
+  m.carId = null;
+  m.heatLostAt = null;
+  m.kingLast = false;
+  m.vaultTimer = 0;
+  m.sideDone = false;
+  const briefing = MISSION_BRIEFINGS[m.index];
+  if (briefing) {
+    for (const [speaker, text] of briefing) say(S, speaker, text, 4.5);
+  }
+  if (m.index === 1) {
+    m.timer = 90;
+  } else if (m.index === 2) {
+    m.timer = 45;
+    S.player.wanted = 3;
+    S.player.recentCrime = true;
+    S.player.crimeTimer = 6;
+    S.banner = 'HEAT — three stars. Lay low and lose them.';
+    S.bannerTimer = 3;
+  } else if (m.index === 4) {
+    S.banner = 'THE BIG SCORE — hit Solmar Bank.';
+    S.bannerTimer = 3;
+  }
+}
+
+// The getaway car this mission depends on was totaled: the job restarts
+// instead of pretending the player can finish on foot.
+function carTotaled(S) {
+  const m = S.missions;
+  if (m.carId === null) return false;
+  const wreck = S.cars.find((c) => c.id === m.carId);
+  return !!wreck && wreck.dead;
+}
+
+function failRide(S, message) {
+  const m = S.missions;
+  m.step = 0;
+  m.timer = m.index === 1 ? 90 : 0;
+  m.packageHeld = false;
+  m.carId = null;
+  S.banner = message;
+  S.bannerTimer = 3;
+  say(S, 'MARLA', 'Ride is scrap. Get another set of wheels and we go again.', 4);
+}
+
+export function updateMissions(S, dt) {
+  const m = S.missions;
+  if (m.done) return;
+  const p = S.player;
+
+  switch (m.index) {
+    case 0: {
+      if (m.step === 0 && !p.onFoot) {
+        m.step = 1;
+        m.carId = p.car ? p.car.id : null;
+        if (p.car && p.car.kind === 'sport') {
+          S.banner = 'Sports car — the garage will pay extra for this one.';
+          S.bannerTimer = 2.5;
+        }
+      } else if (m.step === 1) {
+        if (p.car) m.carId = p.car.id;
+        else if (carTotaled(S)) {
+          failRide(S, 'Car totaled — steal another one.');
+          break;
+        }
+        if (dist(p.x, p.y, MARKERS.garage.x, MARKERS.garage.y) < 70) {
+          completeMission(S);
+        }
+      }
+      break;
     }
-  }
-
-  // Lawan: kejar checkpoint berikutnya, rubber-band ke pemain.
-  for (const o of race.opponents) {
-    const target = cps[o.cpIdx % cps.length];
-    const d = dist(o.x, o.y, target.x, target.y);
-    if (d < 85) {
-      o.cpIdx++;
-      if (o.cpIdx >= cps.length) { o.cpIdx = 0; o.lap++; }
+    case 1: {
+      m.timer -= dt;
+      if (m.carId === null && p.car) m.carId = p.car.id;
+      if (m.carId !== null && !p.car && carTotaled(S)) {
+        failRide(S, 'Ride totaled — the package run restarts.');
+        break;
+      }
+      if (m.timer <= 0) {
+        // Out of time: restart the run from the pickup.
+        m.step = 0;
+        m.timer = 90;
+        m.packageHeld = false;
+        m.carId = null;
+        S.banner = 'Too slow — the package run restarts.';
+        S.bannerTimer = 2.5;
+        break;
+      }
+      const target = m.step === 0 ? MARKERS.pickup : MARKERS.dropoff;
+      if (dist(p.x, p.y, target.x, target.y) < 70) {
+        if (m.step === 0) {
+          m.step = 1;
+          m.packageHeld = true;
+          S.audio.pickup();
+          S.banner = 'Package picked up — deliver it fast!';
+          S.bannerTimer = 2.5;
+          say(S, 'RICO', 'Package in hand. Ninety seconds was generous — watch me.', 3.5);
+        } else {
+          completeMission(S);
+        }
+      }
+      break;
     }
-    const ahead = o.lap > race.lap || (o.lap === race.lap && o.cpIdx > race.cpIdx);
-    const speed = clamp(o.baseSpeed + (ahead ? -46 : 42), 280, 470);
-    const targetAngle = Math.atan2(target.y - o.y, target.x - o.x);
-    const diff = angleDiff(o.angle, targetAngle);
-    o.def.topSpeed = speed;
-    driveCar(o, { up: true, down: false, left: diff < -0.05, right: diff > 0.05, nitro: false },
-      dt, { topSpeed: 1, accel: 1, handling: 1, nitroRate: 1 });
+    case 2: {
+      m.timer -= dt;
+      // Remember the moment the heat first died: the bonus is for losing
+      // the cops early, not for waiting the clock out.
+      if (p.wanted === 0 && m.heatLostAt === null) m.heatLostAt = Math.max(0, m.timer);
+      if (p.wanted === 0 && m.timer <= 0) {
+        completeMission(S);
+      } else if (m.timer <= 0) {
+        // Survived the clock but still hot: keep hiding until the heat dies.
+        m.timer = 0;
+      }
+      break;
+    }
+    case 3: {
+      if (m.step === 0 && dist(p.x, p.y, PLAZA.cx, PLAZA.cy) < 260) {
+        m.step = 1;
+        say(S, 'KING', 'Boys! The wheelman wants the plaza. Give it to him.', 4);
+      } else if (m.step === 1) {
+        const left = S.gang.filter((g) => g.hp > 0);
+        if (left.length === 1 && left[0].isLeader) m.kingLast = true;
+        if (left.length === 0) completeMission(S);
+      }
+      break;
+    }
+    case 4: {
+      if (m.step === 0) {
+        if (dist(p.x, p.y, MARKERS.bank.x, MARKERS.bank.y) < 70) {
+          m.step = 1;
+          m.holdTimer = 3;
+          m.vaultTimer = 25;
+          S.banner = 'Cracking the vault — hold still!';
+          S.bannerTimer = 2.5;
+          say(S, 'MARLA', 'Vault drill is in. Twenty-five seconds before the alarm wakes up.', 4);
+        }
+      } else if (m.step === 1) {
+        m.holdTimer -= dt;
+        m.vaultTimer -= dt;
+        if (m.vaultTimer <= 0) {
+          // Alarm trips: the vault resets, and the heat goes up a star.
+          m.holdTimer = 3;
+          m.vaultTimer = 25;
+          p.addWanted(1, 'bank alarm');
+          S.banner = 'ALARM — the vault resets. Crack it again, faster!';
+          S.bannerTimer = 3;
+          say(S, 'DISPATCH', 'Alarm at Solmar Bank. All units converge.', 3.5);
+        } else if (dist(p.x, p.y, MARKERS.bank.x, MARKERS.bank.y) > 120) {
+          m.holdTimer = 3;
+        } else if (m.holdTimer <= 0) {
+          m.step = 2;
+          m.carId = p.car ? p.car.id : null;
+          p.wanted = 5;
+          p.recentCrime = true;
+          p.crimeTimer = 10;
+          S.banner = 'FIVE STARS — run for the boat!';
+          S.bannerTimer = 3;
+          S.audio.cash();
+          say(S, 'RICO', 'Five thousand in the bag. Now drive like the city is on fire.', 4);
+        }
+      } else if (m.step === 2) {
+        if (p.car) m.carId = p.car.id;
+        else if (carTotaled(S)) {
+          // Getaway car lost: back to the bank, heat still at five stars.
+          m.step = 0;
+          m.carId = null;
+          S.banner = 'Getaway car lost — back to the bank, five stars and all.';
+          S.bannerTimer = 3;
+          say(S, 'MARLA', 'Car is gone, money is not. Steal another one and finish it.', 4);
+          break;
+        }
+        if (dist(p.x, p.y, MARKERS.getaway.x, MARKERS.getaway.y) < 80) {
+          completeMission(S);
+        }
+      }
+      break;
+    }
+    default:
+      break;
   }
-
-  // Posisi: lap, lalu checkpoint, lalu jarak ke checkpoint berikut.
-  const entries = [{ lap: race.lap, cp: race.cpIdx, dist: dist(pp.x, pp.y, nextCp.x, nextCp.y), me: true }];
-  for (const o of race.opponents) {
-    const next = cps[o.cpIdx % cps.length];
-    entries.push({ lap: o.lap, cp: o.cpIdx, dist: dist(o.x, o.y, next.x, next.y), me: false });
-  }
-  entries.sort((a, b) => (b.lap - a.lap) || (b.cp - a.cp) || (a.dist - b.dist));
-  race.position = entries.findIndex((e) => e.me) + 1;
 }
 
-function finishRace(state) {
-  const race = state.race;
-  race.finished = true;
-  const won = race.position === 1;
-  const secs = Math.round(race.raceTime);
-  if (won && !race.fromMission) {
-    addMoney(state, race.def.reward);
-    addStanding(state, race.def.district, 10);
-    state.stats.racesWon++;
-    state.messages.push({ text: race.def.name + ' WON in ' + secs + 's — $' + race.def.reward.toLocaleString('en-US') + ' and standing up!', t: 0, color: '#7ae86a' });
-    setTimeout(() => { if (state.race === race) state.race = null; }, 4000);
-  } else if (!won && !race.fromMission) {
-    state.messages.push({ text: race.def.name + ' lost — you finished P' + race.position + '. Try again (R).', t: 0, color: '#ff6a5a' });
-    setTimeout(() => { if (state.race === race) state.race = null; }, 4000);
+export function currentMarker(S) {
+  return marker(S);
+}
+
+export function saveProgress(S) {
+  try {
+    const data = {
+      money: S.player.money,
+      missionIndex: S.missions.index,
+      carsStolen: S.player.carsStolen,
+      kills: S.player.kills,
+    };
+    localStorage.setItem('solmar-bay-save-v1', JSON.stringify(data));
+  } catch { /* storage may be unavailable */ }
+}
+
+export function loadProgress() {
+  try {
+    const raw = localStorage.getItem('solmar-bay-save-v1');
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (typeof data.money !== 'number') return null;
+    return data;
+  } catch {
+    return null;
   }
 }
