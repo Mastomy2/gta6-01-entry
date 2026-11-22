@@ -22,6 +22,16 @@ import { createWeather, updateWeather } from './weather.js';
 import { createEvents, updateEvents } from './events.js';
 import { createDialogue, updateDialogue } from './dialogue.js';
 import { createShake, updateShake } from './shake.js';
+// Round 9 systems: the city remembers, the crew rides, the radio talks,
+// side work pays, the PD blocks roads and brings the sky, and the story
+// ends in gold.
+import { createStanding, updateStanding, changeStanding, currentDistrict } from './standing.js';
+import { createCrew, updateCrew } from './crew.js';
+import { createRadio, updateRadio, cycleStation } from './radio.js';
+import { createSideJobs, updateSideJobs } from './sidejobs.js';
+import { createRoadblock, updateRoadblock } from './roadblock.js';
+import { createHeli, updateHeli } from './heli.js';
+import { createResults, buildResults, openResults, toggleResults } from './results.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -58,6 +68,16 @@ function buildState(seed) {
     events: createEvents(),
     dialogue: createDialogue(),
     shake: createShake(),
+    // Round 9 state: standing, crew, radio, side jobs, roadblock, heli,
+    // results, and the run ledger the results screen reads.
+    standing: createStanding(),
+    crew: createCrew(),
+    radio: createRadio(),
+    sidejobs: createSideJobs(),
+    roadblock: createRoadblock(),
+    heli: createHeli(),
+    results: createResults(),
+    stats: { earned: 0, jobsDone: 0, roadblocks: 0 },
   };
   S.cars = [...spawnTraffic(seed), ...spawnParked(seed)];
   S.player.x = PLAYER_START.x;
@@ -123,6 +143,12 @@ function frame(now) {
     S.banner = muted ? 'Sound muted.' : 'Sound on.';
     S.bannerTimer = 1.5;
   }
+  // Round 9 keys: R switches radio station, T toggles the results screen.
+  if (wasPressed(input, 'KeyR')) {
+    S.audio.ensure();
+    cycleStation(S);
+  }
+  if (wasPressed(input, 'KeyT')) toggleResults(S);
 
   if (S.mode === 'paused') {
     drawWorld(ctx, S);
@@ -139,10 +165,30 @@ function frame(now) {
   if (S.scene) updateScene(S, dt);
 
   updateTraffic(S, dt);
+  updateHeli(S, dt);
   updatePolice(S, dt);
   updatePedestrians(S, dt);
   updateGang(S, dt);
   updateMissions(S, dt);
+  // Round 9: the city reacts to the mission that just closed — the
+  // ledger grows, the district remembers, and the story's end opens
+  // the results screen in gold.
+  if (S.missions.justCompleted) {
+    const done = S.missions.justCompleted;
+    S.stats.earned += done.reward;
+    changeStanding(S, currentDistrict(S).id, 15, 'mission complete');
+    S.missions.justCompleted = null;
+  }
+  if (S.missions.done && !S.results.shown) {
+    S.results.data = buildResults(S);
+    S.results.shown = true;
+    openResults(S);
+  }
+  updateStanding(S, dt);
+  updateCrew(S, dt);
+  updateRadio(S, dt);
+  updateSideJobs(S, dt);
+  updateRoadblock(S, dt);
   resolveCarBumps(S);
   updateCarDamage(S, dt);
   updateParticles(S.particles, dt);

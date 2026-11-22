@@ -7,6 +7,12 @@ import { WORLD_W, WORLD_H, VIEW_W, VIEW_H, V_ROADS, H_ROADS, PLAZA, PARK, BEACH_
 import { currentObjective, currentSecondary, currentMarker, MISSION_NAMES } from './missions.js';
 import { weatherLabel } from './weather.js';
 import { drawDialogue } from './dialogue.js';
+// Round 9 HUD: district standing, crew roster, radio dial, side-job line,
+// and the gold results screen.
+import { districtLabel, standingOf } from './standing.js';
+import { radioLabel } from './radio.js';
+import { jobLine } from './sidejobs.js';
+import { drawResults } from './results.js';
 
 const MINIMAP_W = 210;
 const MINIMAP_H = 152;
@@ -15,6 +21,8 @@ export function drawHud(ctx, S) {
   if (S.mode === 'title') { drawTitle(ctx, S); return; }
   drawMinimap(ctx, S);
   drawTopRight(ctx, S);
+  drawStandingPanel(ctx, S);
+  drawCrewPanel(ctx, S);
   drawObjective(ctx, S);
   drawHealth(ctx, S);
   drawSpeedometer(ctx, S);
@@ -24,6 +32,7 @@ export function drawHud(ctx, S) {
   if (S.mode === 'paused') drawPaused(ctx, S);
   if (S.player.dead) drawDeath(ctx, S);
   if (S.autopilotDone) drawAutopilotDone(ctx, S);
+  drawResults(ctx, S);
 }
 
 function panel(ctx, x, y, w, h) {
@@ -121,6 +130,54 @@ function drawMinimap(ctx, S) {
       ctx.fillRect(cx, cy, 3, 3);
     }
   }
+  // Round 9 blips: side-job boards (cyan squares), the live job target
+  // (cyan diamond), the roadblock (red bar), the heli (white H), the crew
+  // (gold dots) — the new systems have to read on the map too.
+  if (S.sidejobs) {
+    for (const spot of [{ x: 1460, y: 860 }, { x: 2500, y: 380 }]) {
+      if (S.sidejobs.active) continue;
+      ctx.fillStyle = '#37d3d3';
+      ctx.fillRect(x0 + spot.x * sx - 3, y0 + spot.y * sy - 3, 6, 6);
+    }
+    if (S.sidejobs.active) {
+      const t = S.sidejobs.active.target;
+      ctx.fillStyle = '#37d3d3';
+      ctx.beginPath();
+      ctx.moveTo(x0 + t.x * sx, y0 + t.y * sy - 5);
+      ctx.lineTo(x0 + t.x * sx + 5, y0 + t.y * sy);
+      ctx.lineTo(x0 + t.x * sx, y0 + t.y * sy + 5);
+      ctx.lineTo(x0 + t.x * sx - 5, y0 + t.y * sy);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  if (S.roadblock && S.roadblock.active) {
+    const b = S.roadblock.active;
+    ctx.fillStyle = '#ff3b30';
+    ctx.fillRect(x0 + b.x * sx - 6, y0 + b.y * sy - 2, 12, 4);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x0 + b.x * sx - 6, y0 + b.y * sy - 2, 12, 4);
+  }
+  if (S.heli && S.heli.active) {
+    const h = S.heli.active;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(x0 + h.x * sx, y0 + h.y * sy, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.font = 'bold 6px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('H', x0 + h.x * sx, y0 + h.y * sy + 2);
+  }
+  if (S.crew) {
+    for (const m of S.crew.members) {
+      ctx.fillStyle = '#ffd23d';
+      ctx.beginPath();
+      ctx.arc(x0 + m.x * sx, y0 + m.y * sy, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   // Player arrow.
   ctx.save();
   ctx.translate(x0 + S.player.x * sx, y0 + S.player.y * sy);
@@ -153,7 +210,7 @@ function drawMinimap(ctx, S) {
   // Legend: what every blip means, so the map reads without a manual.
   ctx.fillStyle = 'rgba(255,255,255,0.75)';
   ctx.font = '10px sans-serif';
-  ctx.fillText('◆ mission   ■ police   ▨ race   ○ raid zone', x0 + 2, y0 + MINIMAP_H + 13);
+  ctx.fillText('◆ mission   ■ police   ▨ race   ○ raid   ■ job   ▬ block   H heli', x0 + 2, y0 + MINIMAP_H + 13);
 }
 
 function drawTopRight(ctx, S) {
@@ -186,6 +243,64 @@ function drawTopRight(ctx, S) {
     ctx.textAlign = 'right';
     ctx.fillText(`RAID ${Math.ceil(raid.timer)}s`, x0 + w - 12, 96);
     ctx.textAlign = 'left';
+  }
+}
+
+// Round 9: district standing + radio dial, under the money panel.
+function drawStandingPanel(ctx, S) {
+  const w = 230;
+  const x0 = VIEW_W - w - 14;
+  const y0 = 104;
+  panel(ctx, x0, y0, w, 74);
+  ctx.fillStyle = '#ffd23d';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(districtLabel(S), x0 + 12, y0 + 18);
+  // Standing bar: -100 left, +100 right, centre tick at zero.
+  const v = S.standing ? standingOf(S, S.standing.current) : 0;
+  const bx = x0 + 12;
+  const by = y0 + 26;
+  const bw = w - 24;
+  const bh = 10;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(bx, by, bw, bh);
+  const mid = bx + bw / 2;
+  ctx.fillStyle = v >= 0 ? '#57d957' : '#ff3b30';
+  if (v >= 0) ctx.fillRect(mid, by + 1, (bw / 2) * (v / 100), bh - 2);
+  else ctx.fillRect(mid + (bw / 2) * (v / 100), by + 1, (bw / 2) * (-v / 100), bh - 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillRect(mid - 1, by, 2, bh);
+  // Standing change flash, then the radio dial line.
+  if (S.standing && S.standing.flash > 0) {
+    ctx.fillStyle = '#ffe9a8';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(S.standing.flashText, x0 + 12, y0 + 52);
+  }
+  ctx.fillStyle = '#cfe3ff';
+  ctx.font = '11px sans-serif';
+  ctx.fillText(radioLabel(S), x0 + 12, y0 + 66);
+}
+
+// Round 9: the crew roster, under the minimap.
+function drawCrewPanel(ctx, S) {
+  const members = S.crew ? S.crew.members : [];
+  const lines = members.length === 0 ? 2 : members.length;
+  const h = 30 + lines * 18;
+  panel(ctx, 14, 190, 210, h);
+  ctx.fillStyle = '#ffd23d';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('CREW', 26, 190 + 18);
+  ctx.font = '11px sans-serif';
+  if (members.length === 0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillText('None yet — MARLA waits', 26, 190 + 36);
+    ctx.fillText('at the garage.', 26, 190 + 54);
+  } else {
+    members.forEach((m, i) => {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`${m.name} · ${m.role} (${m.bonus})`, 26, 190 + 36 + i * 18);
+    });
   }
 }
 
@@ -227,6 +342,15 @@ function drawObjective(ctx, S) {
     panel(ctx, (VIEW_W - sw) / 2, 48, sw, 22);
     ctx.fillStyle = '#ffe9a8';
     ctx.fillText(side, VIEW_W / 2, 63);
+  }
+  // Round 9: the live side-job line, cyan, under the bonus line.
+  const job = jobLine(S);
+  if (job) {
+    ctx.font = '12px sans-serif';
+    const jw = Math.min(720, ctx.measureText(job).width + 24);
+    panel(ctx, (VIEW_W - jw) / 2, 74, jw, 22);
+    ctx.fillStyle = '#37d3d3';
+    ctx.fillText(job, VIEW_W / 2, 89);
   }
 }
 
@@ -332,7 +456,8 @@ function drawTitle(ctx, S) {
     'the Big Score — $5,250 on the line, five stars on your tail.',
     '',
     'WASD — walk / drive      E — steal or leave a car      SPACE — punch',
-    'M — mute      P — pause      Progress saves automatically',
+    'R — radio      T — results      M — mute      P — pause      Progress saves automatically',
+    'Districts remember you · crew, side jobs, roadblocks, PD heli — free roam after the story',
   ];
   lines.forEach((line, i) => ctx.fillText(line, VIEW_W / 2, 268 + i * 26));
   if (S.saveData) {

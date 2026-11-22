@@ -7,6 +7,7 @@ import {
   MAX_WANTED, COP_MAX_SPEED, COP_RAM_DAMAGE, COP_FOOT_SPEED,
   COP_PUNCH_DAMAGE, WANTED_DECAY_SECONDS,
 } from './config.js';
+import { decayScale } from './standing.js';
 import { makeCar, driveCar } from './vehicles.js';
 import { nearestRoadPoint, angleDiff, dist, clampToWorld } from './world.js';
 import { spawnSparks } from './particles.js';
@@ -111,10 +112,14 @@ export function updatePolice(S, dt) {
     }
   }
 
-  // --- Wanted decay: clean play slowly cools the heat. ---
-  if (wanted > 0 && !S.player.recentCrime) {
+  // --- Wanted decay: clean play slowly cools the heat. A respected
+  // wheelman cools faster; a hated one slower; and while the heli is
+  // overhead the heat does not cool at all.
+  const heliOverhead = !!(S.heli && S.heli.active);
+  const decaySeconds = WANTED_DECAY_SECONDS * decayScale(S);
+  if (wanted > 0 && !S.player.recentCrime && !heliOverhead) {
     police.decayTimer += dt;
-    if (police.decayTimer >= WANTED_DECAY_SECONDS) {
+    if (police.decayTimer >= decaySeconds) {
       police.decayTimer = 0;
       S.player.wanted = Math.max(0, wanted - 1);
       if (S.player.wanted === 0) {

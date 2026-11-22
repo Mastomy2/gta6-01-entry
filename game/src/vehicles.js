@@ -69,7 +69,9 @@ export function spawnParked(seed) {
 // Shared car physics: accelerate / brake / steer, then move with building
 // collision. Returns true when the car hit something hard this frame.
 export function driveCar(S, car, throttle, steer, dt) {
-  const maxSpeed = car.kind === 'sport' ? CAR_SPORT_MAX : CAR_MAX_SPEED;
+  // MARLA's hands on the wheel: +8% top speed while she rides along.
+  const boost = car.crewBoost ? 1.08 : 1;
+  const maxSpeed = (car.kind === 'sport' ? CAR_SPORT_MAX : CAR_MAX_SPEED) * boost;
   if (throttle > 0) {
     car.speed += CAR_ACCEL * throttle * dt;
   } else if (throttle < 0) {

@@ -8,8 +8,15 @@ import { dist, angleDiff, isBlocked } from './world.js';
 import { spawnExplosion } from './particles.js';
 import { driveCar } from './vehicles.js';
 import { say } from './dialogue.js';
+// Round 9 staging: the roadblock in the chase, the heli over the heist,
+// TONI beside Rico in the plaza, a live taxi job on the beach, and the
+// gold results screen itself.
+import { stageRoadblock } from './roadblock.js';
+import { stageHeli } from './heli.js';
+import { buildResults, openResults } from './results.js';
+import { memberById } from './crew.js';
 
-const SCENE_SEEDS = { chase: 7, beach: 8, plaza: 9, heist: 10 };
+const SCENE_SEEDS = { chase: 7, beach: 8, plaza: 9, heist: 10, results: 11 };
 
 export function sceneSeed(name) {
   return SCENE_SEEDS[name] || 42;
@@ -30,15 +37,18 @@ export function setupScene(S, name) {
   const w = S.weather;
   if (name === 'chase') {
     w.timeOfDay = 0.82; // deep night, lamps on
-    w.rain = 0.8; w.rainTarget = 0.8; w.locked = true;
+    w.rain = 1; w.rainTarget = 1; w.locked = true;
   } else if (name === 'beach') {
     w.timeOfDay = 0.52; // dusk, warm light on wet sand
-    w.rain = 0.35; w.rainTarget = 0.35; w.locked = true;
+    w.rain = 0.8; w.rainTarget = 0.8; w.locked = true;
   } else if (name === 'plaza') {
     w.timeOfDay = 0.3; // hard daylight for the standoff
     w.rain = 0; w.rainTarget = 0; w.locked = true;
   } else if (name === 'heist') {
     w.timeOfDay = 0.8; // night, rain on the getaway
+    w.rain = 0.6; w.rainTarget = 0.6; w.locked = true;
+  } else if (name === 'results') {
+    w.timeOfDay = 0.82; // deep night, lamps on, gold panel on top
     w.rain = 0.6; w.rainTarget = 0.6; w.locked = true;
   }
 
@@ -56,8 +66,8 @@ export function setupScene(S, name) {
     p.x = car.x;
     p.y = car.y;
     p.angle = 0;
-    // Three cruisers closing in from behind.
-    for (let i = 0; i < 3; i++) {
+    // Four cruisers closing in from behind.
+    for (let i = 0; i < 4; i++) {
       const cop = makeCar(900 - 180 - i * 110, 860 + (i - 1) * 46, 0, 'cruiser', '#f0f0f0');
       cop.role = 'police';
       cop.speed = 430 + i * 20;
@@ -72,9 +82,23 @@ export function setupScene(S, name) {
     S.cars.push(wreck);
     spawnExplosion(S.particles, 1960, 830, true);
     spawnExplosion(S.particles, 1880, 880, false);
+    // Two more blasts already blooming down the avenue ahead.
+    spawnExplosion(S.particles, 1560, 820, true);
+    spawnExplosion(S.particles, 1740, 900, false);
+    spawnExplosion(S.particles, 2200, 860, true);
+    // Traffic still on the avenue ahead, headlights in the rain.
+    for (const [tx, dir, kind, color] of [[2150, -1, 'sedan', '#3d9e57'], [2450, -1, 'taxi', '#e8c832']]) {
+      const tc = makeCar(tx, 860, dir > 0 ? 0 : Math.PI, kind, color);
+      tc.role = 'traffic'; tc.axis = 'h'; tc.dir = dir; tc.lane = dir > 0 ? -20 : 20;
+      tc.speed = 170; tc.cruiseSpeed = 170;
+      S.cars.push(tc);
+    }
     // A raid cordon is up ahead: the minimap shows the danger zone, and
     // the chase has to punch through it.
     S.events.raid = { x: 1500, y: 860, timer: 999 };
+    // Round 9: a roadblock is parked across the avenue ahead — two
+    // cruisers, striped barrier, ROADBLOCK on the map and in the world.
+    stageRoadblock(S, 1700, 860, 'h');
     say(S, 'DISPATCH', 'All units, raid on Vega. Box him in — do not let him through the zone.', 30);
   }
 
@@ -90,6 +114,24 @@ export function setupScene(S, name) {
     const car = makeCar(1290, 2240, Math.PI / 2, 'sport', '#2b6fd8');
     car.role = 'parked';
     S.cars.push(car);
+    const car2 = makeCar(1450, 2290, Math.PI / 2, 'sedan', '#e8a13d');
+    car2.role = 'parked';
+    S.cars.push(car2);
+    // Beachgoers strolling the sand beside Rico.
+    for (const [bx, by, shirt] of [[1100, 2300, '#3d7de2'], [1350, 2330, '#57b25a'], [1010, 2400, '#e86a92'], [900, 2440, '#f0f0f0'], [1560, 2380, '#9b59d0']]) {
+      S.peds.push({
+        x: bx, y: by, vx: 0, vy: 0, angle: Math.PI / 2, speed: 45,
+        shirt, skin: '#e8b98a', state: 'walk', stateTimer: 6, downTimer: 0, walkPhase: 0,
+      });
+    }
+    // Round 9: a taxi job is live on the beach — the cyan beacon marks
+    // the Beach Motel drop-off and the job line rides under the objective.
+    S.sidejobs.active = {
+      spot: { id: 'taxi', kind: 'TAXI', name: 'Taxi stand', x: 1460, y: 860, pay: 120, time: 75 },
+      target: { x: 940, y: 2200, label: 'Beach Motel' },
+      timer: 58,
+      pay: 120,
+    };
     say(S, 'RICO', 'Ocean Drive at dusk. Somewhere out here is my first set of wheels.', 30);
   }
 
@@ -117,6 +159,32 @@ export function setupScene(S, name) {
     // the shot, with Rico's answer queued behind it.
     say(S, 'KING', 'Rico. You came to the wrong plaza, wheelman.', 30);
     say(S, 'RICO', 'Wrong plaza? This is the one with your name on it.', 30);
+    // Round 9: TONI stands with Rico — the crew is in the frame, not
+    // just on the HUD panel.
+    const toni = memberById('toni');
+    toni.x = 1660;
+    toni.y = 1290;
+    S.crew.members.push(toni);
+    S.crew.recruited.toni = true;
+    // Two foot cops closing on the standoff from the plaza corners.
+    S.police.footCops.push(
+      { x: 1560, y: 960, angle: 0, hp: 60, punchTimer: 0, speed: 205 },
+      { x: 1900, y: 1300, angle: 0, hp: 60, punchTimer: 0, speed: 205 },
+      { x: 1560, y: 1300, angle: 0, hp: 60, punchTimer: 0, speed: 205 },
+      { x: 1900, y: 960, angle: 0, hp: 60, punchTimer: 0, speed: 205 },
+    );
+    // Parked cars and passers-by ringing the plaza.
+    for (const [px, py, ang, color] of [[1460, 1000, 0, '#e8e8e8'], [1980, 1420, Math.PI / 2, '#7a2ea8'], [1460, 1420, Math.PI, '#4a7a8c']]) {
+      const pc = makeCar(px, py, ang, 'sedan', color);
+      pc.role = 'parked';
+      S.cars.push(pc);
+    }
+    for (const [bx, by, shirt] of [[1520, 1420, '#e8a13d'], [1920, 1420, '#3db5b5']]) {
+      S.peds.push({
+        x: bx, y: by, vx: 0, vy: 0, angle: -Math.PI / 2, speed: 45,
+        shirt, skin: '#c98d5f', state: 'walk', stateTimer: 6, downTimer: 0, walkPhase: 0,
+      });
+    }
   }
 
   if (name === 'heist') {
@@ -142,6 +210,61 @@ export function setupScene(S, name) {
     }
     spawnExplosion(S.particles, 1680, 1300, true);
     say(S, 'RICO', 'Five thousand in the bag. Now drive like the city is on fire.', 30);
+    // Round 9: five stars brings the sky — the PD heli circles the
+    // getaway, searchlight on the car.
+    stageHeli(S, 0.6);
+  }
+
+  if (name === 'results') {
+    // The Big Score, closed out: story done, $5,250 in the bag, five
+    // stars, the heli overhead, and the gold results panel open.
+    p.money = 5250;
+    p.wanted = 5;
+    S.missions.index = 5;
+    S.missions.step = 0;
+    S.missions.done = true;
+    S.stats.earned = 9150;
+    S.stats.jobsDone = 3;
+    S.stats.roadblocks = 1;
+    p.carsStolen = 4;
+    p.kills = 6;
+    S.time = 754; // 12:34 on the job — the ledger needs a real clock
+    p.x = 1980;
+    p.y = 380;
+    p.angle = -Math.PI / 2;
+    p.onFoot = true;
+    const car = makeCar(2060, 420, -Math.PI / 2, 'sport', '#222226');
+    car.role = 'parked';
+    S.cars.push(car);
+    for (let i = 0; i < 4; i++) {
+      const cop = makeCar(1980 - 160 - i * 110, 380 + (i % 2 === 0 ? -44 : 44), 0, 'cruiser', '#f0f0f0');
+      cop.role = 'police';
+      cop.speed = 430 + i * 20;
+      S.cars.push(cop);
+      S.police.cruisers.push(cop);
+    }
+    // Traffic still rolling past the bank on the avenue.
+    const t1 = makeCar(2400, 380, 0, 'sedan', '#3d9e57');
+    t1.role = 'traffic'; t1.axis = 'h'; t1.dir = 1; t1.lane = -20; t1.speed = 160; t1.cruiseSpeed = 160;
+    S.cars.push(t1);
+    const t2 = makeCar(1500, 380, Math.PI, 'taxi', '#e8c832');
+    t2.role = 'traffic'; t2.axis = 'h'; t2.dir = -1; t2.lane = 20; t2.speed = 150; t2.cruiseSpeed = 150;
+    S.cars.push(t2);
+    const t3 = makeCar(1960, 700, Math.PI / 2, 'sedan', '#c23b2e');
+    t3.role = 'traffic'; t3.axis = 'v'; t3.dir = 1; t3.lane = -20; t3.speed = 160; t3.cruiseSpeed = 160;
+    S.cars.push(t3);
+    const t4 = makeCar(2000, 100, -Math.PI / 2, 'van', '#e8a13d');
+    t4.role = 'traffic'; t4.axis = 'v'; t4.dir = -1; t4.lane = 20; t4.speed = 140; t4.cruiseSpeed = 140;
+    S.cars.push(t4);
+    stageHeli(S, 0.9);
+    spawnExplosion(S.particles, 2300, 340, true);
+    spawnExplosion(S.particles, 1650, 430, false);
+    spawnExplosion(S.particles, 1600, 200, true);
+    spawnExplosion(S.particles, 2400, 620, false);
+    S.results.data = buildResults(S);
+    openResults(S);
+    S.results.shown = true;
+    say(S, 'MARLA', 'Five thousand, two hundred and fifty. Solmar Bay is ours, Rico.', 30);
   }
 
   S.camera.x = p.x;
@@ -155,7 +278,7 @@ export function updateScene(S, dt) {
   const p = S.player;
   // A staged shot keeps its wanted level: the chase car must not pick up
   // a fourth star by clipping a pedestrian on its way through town.
-  p.wanted = { chase: 3, beach: 0, plaza: 1, heist: 5 }[S.scene] ?? p.wanted;
+  p.wanted = { chase: 3, beach: 0, plaza: 1, heist: 5, results: 5 }[S.scene] ?? p.wanted;
   if ((S.scene === 'chase' || S.scene === 'heist') && p.car && !p.car.dead) {
     // Lane-keeping: steer at a look-ahead point on the road centreline,
     // so the getaway car stays on the asphalt instead of drifting into
@@ -201,6 +324,16 @@ export function updateScene(S, dt) {
       g.angle = Math.atan2(p.y - g.y, p.x - g.x);
     }
     if (p.hp < 60) p.hp = 100;
+  }
+  if (S.scene === 'results') {
+    // The city burns quietly behind the gold panel: explosions bloom
+    // down the avenue while the heli holds its circle.
+    S.boomTimer -= dt;
+    if (S.boomTimer <= 0) {
+      S.boomTimer = 1.2;
+      const side = Math.random() < 0.5 ? 1 : -1;
+      spawnExplosion(S.particles, p.x + side * (330 + Math.random() * 120), p.y - 60 + (Math.random() - 0.5) * 160, Math.random() < 0.5);
+    }
   }
 }
 

@@ -4,6 +4,7 @@
 // plaza scene shows.
 
 import { GANG_COUNT, GANG_HP, GANG_SPEED, GANG_DAMAGE, GANG_AGGRO_RANGE, PLAZA } from './config.js';
+import { kingsHostile } from './standing.js';
 import { makeRng, range, chance } from './random.js';
 import { dist, clampToWorld } from './world.js';
 
@@ -40,7 +41,8 @@ export function updateGang(S, dt) {
     g.walkPhase += dt * 8;
     const d = dist(g.x, g.y, p.x, p.y);
     // The Kings fight on foot: a player inside a car is out of reach.
-    const aggro = p.onFoot && (missionActive || d < GANG_AGGRO_RANGE);
+    // And a Rico the plaza likes is left alone — unless Payback is live.
+    const aggro = p.onFoot && kingsHostile(S) && (missionActive || d < GANG_AGGRO_RANGE);
     if (aggro && !p.dead) {
       g.state = d < 34 ? 'attack' : 'chase';
       const a = Math.atan2(p.y - g.y, p.x - g.x);

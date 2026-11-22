@@ -10,6 +10,7 @@ import { moveVector, wasPressed, isDown } from './input.js';
 import { isBlocked, dist, clampToWorld, angleDiff } from './world.js';
 import { driveCar } from './vehicles.js';
 import { spawnDust } from './particles.js';
+import { districtAt, changeStanding } from './standing.js';
 
 export function createPlayer() {
   const player = {
@@ -184,6 +185,7 @@ function enterCar(S, car) {
   if (stolen) {
     p.carsStolen += 1;
     p.addWanted(1, 'stole a car');
+    changeStanding(S, districtAt(p.x, p.y).id, -4, 'stole a car');
     S.banner = 'Car stolen — the cops noticed.';
     S.bannerTimer = 2.5;
   }
@@ -228,7 +230,10 @@ function punch(S) {
     best.hp -= PUNCH_DAMAGE;
     if (best.hp <= 0) {
       p.kills += 1;
-      if (S.gang.includes(best)) p.addWanted(1, 'gang fight');
+      if (S.gang.includes(best)) {
+        p.addWanted(1, 'gang fight');
+        changeStanding(S, 'plaza', -6, 'dropped a King');
+      }
     }
     S.audio.punch();
   }

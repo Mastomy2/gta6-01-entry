@@ -58,8 +58,9 @@ export function updateWeather(S, dt) {
     return;
   }
   // Keep the streak field full while it rains; drops fall in screen
-  // space so they read the same at any camera position.
-  const want = Math.floor(w.rain * 130);
+  // space so they read the same at any camera position. A real downpour
+  // is dense: 220 streaks at full rain.
+  const want = Math.floor(w.rain * 220);
   while (w.drops.length < want) {
     w.drops.push({
       x: Math.random() * 1360 - 40,
