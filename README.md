@@ -21,6 +21,7 @@ http://localhost:8080) and play with the keyboard:
 - **WASD / arrows** — walk, or drive when in a car
 - **E** — steal a car / get out
 - **SPACE** — punch
+- **R** — switch radio station, **T** — results screen (after the story)
 - **P** — pause, **M** — mute
 
 ## Missions
@@ -41,6 +42,31 @@ dialogue subtitles at the bottom of the screen.
 
 ## A living city
 
+- **District standing** — six districts (North Docks, Downtown, Kings
+  Plaza, Parkside, Southside, Ocean Drive) remember Rico from -100 to
+  +100. Missions and side jobs lift a district; stealing cars and
+  dropping Kings drag it down. A respected wheelman cools his wanted
+  level faster, earns up to +10% on side jobs, and the Kings stand down
+  on their plaza; a hated one cools slower and pays less.
+- **Crew** — MARLA the wheelwoman waits at the garage (after mission 1)
+  and TONI the muscle at the plaza (after mission 3). Walk up and they
+  join: they fight beside Rico on foot, and MARLA is worth +8% top speed
+  in the car. The HUD crew panel names them and their bonus.
+- **Radio (R)** — three stations: SOLMAR FM talk, BAY 97.5 night drive,
+  and PD SCAN, the police band. A scanner in the car warns of a roadblock
+  forming four seconds before the cruisers park.
+- **Side jobs** — a TAXI stand on the avenue and a COURIER depot by the
+  north docks. Step into the cyan ring and run the fare against the
+  clock; pay scales with district standing.
+- **Roadblocks** — at three stars and up the PD parks two cruisers across
+  the road ahead, striped barrier between them. Ram through or swing
+  around; the block burns out after 25 seconds or when the heat drops.
+- **Police helicopter** — five stars brings the sky: a PD heli circles
+  Rico in a searchlight cone, and while it is overhead the wanted level
+  cannot decay. Drop below two stars to shake it.
+- **Results screen (T)** — when the Big Score closes, the story ends in
+  gold: total earned, time, cars stolen, Kings dropped, jobs run,
+  roadblocks smashed, and a rank from C to S.
 - **Day/night cycle** — a 4-minute day rolls from dawn to noon to dusk to
   deep night; street lamps glow after dark and the HUD clock shows the
   time, the phase, and the rain.
@@ -58,10 +84,11 @@ dialogue subtitles at the bottom of the screen.
 
 Open the game with a scene parameter for a staged shot of the city alive:
 
-- `?scene=chase` — high-speed pursuit at night in the rain, raid zone ahead
-- `?scene=beach` — Ocean Drive at dusk in a shower, wet sand and lamps
-- `?scene=plaza` — the Kings, led by KING himself, mid-standoff
-- `?scene=heist` — five stars, $5,250, flat out in the night rain
+- `?scene=chase` — high-speed pursuit at night in the rain, raid zone ahead, roadblock across the avenue
+- `?scene=beach` — Ocean Drive at dusk in a shower, wet sand and lamps, a live taxi job
+- `?scene=plaza` — the Kings, led by KING himself, mid-standoff, TONI at Rico's side
+- `?scene=heist` — five stars, $5,250, flat out in the night rain, PD heli overhead
+- `?scene=results` — the Big Score closed out: the gold results screen, rank S
 - `?auto=1` — the autopilot plays mission 1 by itself
 
 ## Structure
@@ -72,7 +99,11 @@ Open the game with a scene parameter for a staged shot of the city alive:
 `player`, `gang`, `missions`, `render`, `hud`, `save`, `scenes`, `main`
 (the loop), plus the round-8 systems: `weather` (day/night + rain),
 `events` (street races + police raids), `dialogue` (briefings and
-subtitles), and `shake` (screen shake). No libraries, no network requests,
+subtitles), and `shake` (screen shake), plus the round-9 systems:
+`standing` (district reputation), `crew` (recruits and bonuses), `radio`
+(three stations + police scanner), `sidejobs` (taxi + courier work),
+`roadblock` (PD roadblocks), `heli` (police helicopter), and `results`
+(the gold end-of-story screen). No libraries, no network requests,
 no build step.
 
 An original fan-made game. Not affiliated with Rockstar Games.
