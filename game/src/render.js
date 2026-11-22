@@ -16,12 +16,6 @@ import { currentMarker } from './missions.js';
 import { nightFactor, drawWeatherOverlay } from './weather.js';
 import { drawEventMarkers } from './events.js';
 import { shakeOffset } from './shake.js';
-// Round 9 world-space layers: side-job boards, the roadblock wall, the
-// crew on foot, and the heli with its searchlight.
-import { drawSideJobs } from './sidejobs.js';
-import { drawRoadblock } from './roadblock.js';
-import { drawCrew } from './crew.js';
-import { drawHeli } from './heli.js';
 
 export function drawWorld(ctx, S) {
   const cam = S.camera;
@@ -46,10 +40,6 @@ export function drawWorld(ctx, S) {
   drawPlayer(ctx, S);
   drawParticles(ctx, S.particles);
   drawEventMarkers(ctx, S);
-  drawSideJobs(ctx, S);
-  drawRoadblock(ctx, S);
-  drawCrew(ctx, S);
-  drawHeli(ctx, S);
 
   ctx.restore();
   // Night tint, dusk warmth and rain streaks sit above the world, below the HUD.
