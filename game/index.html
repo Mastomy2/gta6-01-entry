@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Solmar Bay — an open-world crime game</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0e14'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' font-weight='bold' fill='%23ffd23d' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
 <style>
   html, body {
     margin: 0;
@@ -33,12 +34,36 @@
     font: 12px monospace;
     pointer-events: none;
   }
+  /* Big staged-scene banner, shown above the canvas by scenes.js for the
+     chase and heist shots. Large on purpose: the in-canvas banner is only
+     22px, too small to read as a headline at 1280x720. */
+  #scene-banner {
+    display: none;
+    position: fixed;
+    top: 140px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    max-width: 1220px;
+    padding: 14px 30px;
+    background: rgba(10, 14, 20, 0.82);
+    border: 3px solid #ffd23d;
+    border-radius: 8px;
+    color: #ffffff;
+    font: bold 34px/1.2 sans-serif;
+    letter-spacing: 1px;
+    text-align: center;
+    white-space: nowrap;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
 <div id="wrap">
   <canvas id="game" width="1280" height="720"></canvas>
 </div>
+<div id="scene-banner"></div>
 <div id="status"></div>
 <script type="module" src="./src/main.js"></script>
 </body>
