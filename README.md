@@ -58,10 +58,10 @@ dialogue subtitles at the bottom of the screen.
 
 Open the game with a scene parameter for a staged shot of the city alive:
 
-- `?scene=chase` — high-speed pursuit at bright noon, four stars, raid zone ahead, big HEAT banner
-- `?scene=beach` — Ocean Drive at bright noon, dry sand and blue water
-- `?scene=plaza` — the Kings, led by KING himself, mid-standoff at noon
-- `?scene=heist` — five stars, $5,250, amber getaway car at noon, big BIG SCORE banner
+- `?scene=chase` — high-speed pursuit at night in the rain, raid zone ahead
+- `?scene=beach` — Ocean Drive at dusk in a shower, wet sand and lamps
+- `?scene=plaza` — the Kings, led by KING himself, mid-standoff
+- `?scene=heist` — five stars, $5,250, flat out in the night rain
 - `?auto=1` — the autopilot plays mission 1 by itself
 
 ## Structure
